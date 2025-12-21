@@ -23,6 +23,7 @@
   "devDependencies": {
     "@types/pg": "^8.15.6",
     "eslint": "^8.54.0",
-    "eslint-config-next": "^14.0.0"
+    "eslint-config-next": "^14.0.0",
+    "vercel": "^50.1.3"
   }
 }
