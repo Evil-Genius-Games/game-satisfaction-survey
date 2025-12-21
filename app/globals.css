@@ -1,0 +1,346 @@
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  padding: 1.5rem;
+}
+
+@media (min-width: 640px) {
+  body {
+    padding: 2rem;
+  }
+  
+  .container {
+    padding: 3rem;
+  }
+}
+
+.survey-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.survey-header h1 {
+  font-size: 1.8rem;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.survey-header h2 {
+  font-size: 1.5rem;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.survey-header p {
+  font-size: 1rem;
+  color: #666;
+}
+
+@media (min-width: 640px) {
+  .survey-header h1 {
+    font-size: 2.5rem;
+  }
+  
+  .survey-header h2 {
+    font-size: 2rem;
+  }
+  
+  .survey-header p {
+    font-size: 1.1rem;
+  }
+}
+
+.question-container {
+  margin-bottom: 2.5rem;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.question-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.5rem;
+  display: block;
+  line-height: 1.4;
+}
+
+@media (min-width: 640px) {
+  .question-label {
+    font-size: 1.3rem;
+  }
+}
+
+.question-label .required {
+  color: #e74c3c;
+}
+
+.question-input {
+  width: 100%;
+  padding: 0.875rem;
+  font-size: 16px; /* Prevents zoom on iOS */
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  transition: border-color 0.3s;
+  font-family: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+@media (min-width: 640px) {
+  .question-input {
+    padding: 1rem;
+    font-size: 1rem;
+  }
+}
+
+.question-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.question-textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.option-item {
+  display: flex;
+  align-items: center;
+  padding: 0.875rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 44px; /* Touch target size */
+}
+
+@media (min-width: 640px) {
+  .option-item {
+    padding: 1rem;
+  }
+}
+
+.option-item:hover {
+  border-color: #667eea;
+  background-color: #f8f9ff;
+}
+
+.option-item input[type="checkbox"],
+.option-item input[type="radio"] {
+  margin-right: 0.75rem;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.rating-container {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.rating-button {
+  width: 48px;
+  height: 48px;
+  min-width: 48px; /* Touch target */
+  min-height: 48px;
+  border: 2px solid #e0e0e0;
+  border-radius: 50%;
+  background: white;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  touch-action: manipulation; /* Prevents double-tap zoom */
+}
+
+@media (min-width: 640px) {
+  .rating-button {
+    width: 50px;
+    height: 50px;
+    min-width: 50px;
+    min-height: 50px;
+    font-size: 1.2rem;
+  }
+}
+
+.rating-button:hover {
+  border-color: #667eea;
+  background-color: #f8f9ff;
+  transform: scale(1.1);
+}
+
+.rating-button.selected {
+  background-color: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+/* Smaller buttons for 1-10 scale */
+.rating-container:has(.rating-button[style*="width: 40px"]) {
+  gap: 0.5rem;
+}
+
+.submit-button {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  margin-top: 1.5rem;
+  min-height: 48px; /* Touch target */
+  touch-action: manipulation;
+}
+
+@media (min-width: 640px) {
+  .submit-button {
+    padding: 1.2rem;
+    font-size: 1.1rem;
+    margin-top: 2rem;
+  }
+}
+
+.submit-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+}
+
+.submit-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.progress-bar {
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  margin-bottom: 2rem;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+}
+
+.success-message {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.success-message h2 {
+  font-size: 1.5rem;
+  color: #27ae60;
+  margin-bottom: 1rem;
+}
+
+.success-message p {
+  font-size: 1rem;
+  color: #666;
+}
+
+@media (min-width: 640px) {
+  .success-message {
+    padding: 3rem;
+  }
+  
+  .success-message h2 {
+    font-size: 2rem;
+  }
+  
+  .success-message p {
+    font-size: 1.1rem;
+  }
+}
+
+/* Mobile optimizations */
+@media (max-width: 639px) {
+  .rating-container {
+    gap: 0.5rem;
+  }
+  
+  .rating-button {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 1rem;
+  }
+  
+  .question-container {
+    margin-bottom: 2rem;
+  }
+  
+  .survey-header {
+    margin-bottom: 2rem;
+  }
+  
+  /* Make QR code responsive on mobile */
+  svg[viewBox*="0 0"] {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* Desktop QR code sizing */
+@media (min-width: 640px) {
+  svg[viewBox*="0 0"] {
+    width: 250px;
+    height: 250px;
+  }
+}
+
