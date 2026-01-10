@@ -109,6 +109,22 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const client = await pool.connect();
   try {
+    // Check if table exists first
+    const tableCheck = await client.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'coupon_codes'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      return NextResponse.json({ 
+        error: 'Coupon codes table does not exist',
+        message: 'Please run the database migration to create the coupon_codes table. See migrations/create_coupon_codes.sql'
+      }, { status: 500 });
+    }
+    
     const body = await request.json();
     const { codes, notes } = body;
     

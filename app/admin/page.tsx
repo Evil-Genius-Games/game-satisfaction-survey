@@ -2073,12 +2073,19 @@ export default function AdminPanel() {
                       if (res.ok) {
                         setBulkUploadText('');
                         fetchCouponCodes();
+                        // Show success message if codes were created
+                        if (data.created > 0) {
+                          const message = `${data.created} code(s) uploaded successfully${data.errorCount > 0 ? `. ${data.errorCount} skipped (duplicates or errors).` : '.'}`;
+                          console.log(message);
+                        }
                       } else {
-                        alert('Failed to upload coupon codes');
+                        const errorMsg = data.message || data.error || 'Failed to upload coupon codes';
+                        alert(errorMsg);
+                        console.error('Upload error:', data);
                       }
                     } catch (error) {
                       console.error('Error uploading coupon codes:', error);
-                      alert('Failed to upload coupon codes');
+                      alert('Failed to upload coupon codes. Please check the console for details.');
                     }
                   }}
                   style={{
