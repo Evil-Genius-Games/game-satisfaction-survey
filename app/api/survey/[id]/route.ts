@@ -8,7 +8,13 @@ export async function GET(
   try {
     const { id } = await params;
     const surveyId = parseInt(id);
-    const survey = await getSurveyWithQuestions(surveyId);
+    
+    // Get selectedGMId and convention from query parameters
+    const { searchParams } = new URL(request.url);
+    const selectedGMId = searchParams.get('gmId');
+    const preSelectedConvention = searchParams.get('convention');
+    
+    const survey = await getSurveyWithQuestions(surveyId, selectedGMId, preSelectedConvention);
     
     if (!survey) {
       return NextResponse.json({ error: 'Survey not found' }, { status: 404 });

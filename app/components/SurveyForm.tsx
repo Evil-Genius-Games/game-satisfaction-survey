@@ -28,9 +28,10 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   const [conventionDisplayName, setConventionDisplayName] = useState<string | null>(null);
   const isSubmittingRef = useRef(false);
   
-  // Generate a temporary coupon code for QR code display
+  // Use assigned coupon code or generate a temporary one as fallback
   const tempCouponCode = useMemo(() => {
     if (couponCode) return couponCode;
+    // Fallback: generate temporary code only if no code has been assigned yet
     const prefix = 'GM';
     const randomNum = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
     return `${prefix}${randomNum}`;
@@ -143,8 +144,14 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
   }, [visibleQuestions.length]);
 
+  // Initial load
   useEffect(() => {
-    fetch(`/api/survey/${surveyId}`)
+    const params = new URLSearchParams();
+    if (preSelectedConvention) {
+      params.append('convention', preSelectedConvention);
+    }
+    const paramString = params.toString() ? `?${params.toString()}` : '';
+    fetch(`/api/survey/${surveyId}${paramString}`)
       .then(res => res.json())
       .then(data => {
         setSurvey(data);
@@ -154,7 +161,43 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         console.error('Error fetching survey:', err);
         setLoading(false);
       });
-  }, [surveyId]);
+  }, [surveyId, preSelectedConvention]);
+
+  // Reload survey when GM is selected in answers - this filters both convention and adventure options
+  useEffect(() => {
+    if (!survey) return;
+    
+    // Find GM question (may vary, but typically contains "GM" or "game master")
+    const gmQuestion = survey.questions.find(q => 
+      q.question_text?.toLowerCase().includes('gm') || 
+      q.question_text?.toLowerCase().includes('game master') ||
+      q.question_text?.toLowerCase().includes('who was your')
+    );
+    
+    const selectedGMId = gmQuestion ? answers[gmQuestion.id] : null;
+    
+    // Reload when GM is selected or deselected to filter convention/adventure options
+    const params = new URLSearchParams();
+    if (preSelectedConvention) {
+      params.append('convention', preSelectedConvention);
+    }
+    if (selectedGMId) {
+      params.append('gmId', String(selectedGMId));
+    }
+    const paramString = params.toString() ? `?${params.toString()}` : '';
+    
+    // Only reload if GM selection changed
+    if (selectedGMId !== undefined) {
+      fetch(`/api/survey/${surveyId}${paramString}`)
+        .then(res => res.json())
+        .then(data => {
+          setSurvey(data);
+        })
+        .catch(err => {
+          console.error('Error reloading survey with GM filter:', err);
+        });
+    }
+  }, [answers, survey, surveyId, preSelectedConvention]);
 
   const handleAnswer = (questionId: number, value: any) => {
     setAnswers(prev => {
@@ -275,23 +318,30 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     if (!idToUse) return;
     
     try {
-      const response = await fetch('/api/coupon/deliver', {
+      // Assign a coupon code from the uploaded pool
+      const assignResponse = await fetch('/api/admin/coupon-codes/assign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          responseId: idToUse,
-          couponCode: tempCouponCode
+          responseId: idToUse
         })
       });
       
-      if (response.ok) {
+      if (assignResponse.ok) {
+        const assignData = await assignResponse.json();
+        if (assignData.couponCode) {
+          setCouponCode(assignData.couponCode.code);
+        }
         setCouponDelivered(true);
         if (!responseId) {
           setResponseId(idToUse);
         }
+      } else {
+        // If no coupon code is available, fall back to temp code
+        console.warn('No coupon code available from pool, using temp code');
       }
     } catch (error) {
-      console.error('Error recording coupon delivery:', error);
+      console.error('Error assigning coupon code:', error);
     }
   };
 
@@ -631,6 +681,20 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                       await navigator.clipboard.writeText(tempCouponCode);
                       setCopied(true);
                       setTimeout(() => setCopied(false), 2000);
+                      
+                      // Mark code as used when copied
+                      try {
+                        await fetch('/api/admin/coupon-codes/mark-used', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            code: tempCouponCode,
+                            action: 'copied'
+                          })
+                        });
+                      } catch (error) {
+                        console.error('Error marking code as used:', error);
+                      }
                     } catch (err) {
                       console.error('Failed to copy:', err);
                     }
@@ -707,6 +771,21 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                       });
                       if (response.ok) {
                         setEmailSent(true);
+                        
+                        // Mark code as used when emailed
+                        try {
+                          await fetch('/api/admin/coupon-codes/mark-used', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              code: tempCouponCode,
+                              action: 'emailed'
+                            })
+                          });
+                        } catch (error) {
+                          console.error('Error marking code as used:', error);
+                        }
+                        
                         // Update coupon delivery record with email if we have responseId
                         if (responseId) {
                           await fetch('/api/coupon/deliver', {
@@ -985,7 +1064,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
         {question.question_type === 'multiple_choice' && question.options && (
           <div className="question-options">
-            {question.options.map((option) => (
+            {[...question.options].sort((a, b) => a.option_text.toLowerCase().localeCompare(b.option_text.toLowerCase())).map((option) => (
               <label key={option.id} className="option-item">
                 <input
                   type="checkbox"
@@ -1008,7 +1087,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
         {question.question_type === 'single_choice' && question.options && (
           <div className="question-options">
-            {question.options.map((option) => (
+            {[...question.options].sort((a, b) => a.option_text.toLowerCase().localeCompare(b.option_text.toLowerCase())).map((option) => (
               <label key={option.id} className="option-item">
                 <input
                   type="radio"
@@ -1033,7 +1112,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
             style={{ padding: '1rem', fontSize: '1rem' }}
           >
             <option value="">Select an option...</option>
-            {question.options.map((option) => (
+            {[...question.options].sort((a, b) => a.option_text.toLowerCase().localeCompare(b.option_text.toLowerCase())).map((option) => (
               <option key={option.id} value={option.option_value || option.option_text}>
                 {option.option_text}
               </option>
