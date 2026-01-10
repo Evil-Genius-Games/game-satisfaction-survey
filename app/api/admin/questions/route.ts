@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
 export async function GET() {
+  if (!process.env.DATABASE_URL) {
+    return NextResponse.json({ 
+      error: 'Database connection not configured',
+      message: 'DATABASE_URL environment variable is missing'
+    }, { status: 500 });
+  }
+  
   const client = await pool.connect();
   try {
     const questionsResult = await client.query(

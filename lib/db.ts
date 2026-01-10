@@ -1,13 +1,24 @@
 import { Pool } from 'pg';
 
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL environment variable is not set');
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  },
+  ssl: process.env.DATABASE_URL?.includes('sslmode=require') || process.env.DATABASE_URL?.includes('ssl=true') 
+    ? {
+        rejectUnauthorized: false
+      }
+    : undefined,
   max: 20, // Maximum number of clients in the pool
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
   connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection could not be established
+});
+
+// Test connection on startup
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
 });
 
 export interface Survey {
