@@ -68,6 +68,7 @@ export default function AdminPanel() {
   const [couponCodes, setCouponCodes] = useState<any[]>([]);
   const [couponCodeFilter, setCouponCodeFilter] = useState<'all' | 'available' | 'used' | 'expired'>('all');
   const [bulkUploadText, setBulkUploadText] = useState<string>('');
+  const [uploadingCodes, setUploadingCodes] = useState<boolean>(false);
   const qrCodeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -764,6 +765,11 @@ export default function AdminPanel() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5', padding: '2rem' }}>
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}} />
       <div style={{ maxWidth: '1200px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
         <h1 style={{ padding: '2rem', borderBottom: '2px solid #e0e0e0', margin: 0, fontSize: '2rem' }}>
           Admin Panel
@@ -2057,11 +2063,14 @@ export default function AdminPanel() {
                       return;
                     }
                     
+                    if (uploadingCodes) return; // Prevent double submission
+                    
                     const codes = bulkUploadText
                       .split('\n')
                       .map(line => line.trim())
                       .filter(line => line.length > 0);
                     
+                    setUploadingCodes(true);
                     try {
                       const res = await fetch('/api/admin/coupon-codes', {
                         method: 'POST',
@@ -2086,20 +2095,45 @@ export default function AdminPanel() {
                     } catch (error) {
                       console.error('Error uploading coupon codes:', error);
                       alert('Failed to upload coupon codes. Please check the console for details.');
+                    } finally {
+                      setUploadingCodes(false);
                     }
                   }}
+                  disabled={uploadingCodes}
                   style={{
                     padding: '0.75rem 1.5rem',
-                    background: '#667eea',
+                    background: uploadingCodes ? '#ccc' : '#667eea',
                     color: 'white',
                     border: 'none',
                     borderRadius: '4px',
                     fontSize: '0.95rem',
                     fontWeight: 600,
-                    cursor: 'pointer'
+                    cursor: uploadingCodes ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    minWidth: '140px',
+                    justifyContent: 'center'
                   }}
                 >
-                  Upload Codes
+                  {uploadingCodes ? (
+                    <>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: '16px',
+                          height: '16px',
+                          border: '2px solid rgba(255,255,255,0.3)',
+                          borderTopColor: 'white',
+                          borderRadius: '50%',
+                          animation: 'spin 0.6s linear infinite'
+                        }}
+                      />
+                      Uploading...
+                    </>
+                  ) : (
+                    'Upload Codes'
+                  )}
                 </button>
               </div>
 
