@@ -231,11 +231,17 @@ export async function getSurveyWithQuestions(id: number, selectedGMId?: string |
                 [question.id]
               );
               
-              // Filter original options to only include adventures associated with the selected GM
-              const gmAdventures = adventureResult.rows.map((row: any) => row.adventure);
-              question.options = originalOptionsResult.rows.filter((opt: any) => 
-                gmAdventures.includes(opt.option_text) || gmAdventures.includes(opt.option_value)
-              );
+              // If GM has no adventures assigned, show all adventures
+              if (adventureResult.rows.length === 0) {
+                // GM has no adventures assigned - show all adventures
+                question.options = originalOptionsResult.rows;
+              } else {
+                // GM has adventures assigned - filter to only show those
+                const gmAdventures = adventureResult.rows.map((row: any) => row.adventure);
+                question.options = originalOptionsResult.rows.filter((opt: any) => 
+                  gmAdventures.includes(opt.option_text) || gmAdventures.includes(opt.option_value)
+                );
+              }
               
               // Sort by adventure name
               question.options.sort((a: any, b: any) => {
