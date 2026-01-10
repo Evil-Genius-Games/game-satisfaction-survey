@@ -464,8 +464,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
     
     // Get GM questions (display_order 8, 9, 10)
-    const gmQuestions = survey?.questions.filter(q => q.display_order >= 8 && q.display_order <= 10) || [];
-    const gmQuestionsArray = survey?.questions && Array.isArray(survey.questions) 
+    const gmQuestions = survey?.questions && Array.isArray(survey.questions) 
       ? survey.questions.filter(q => q.display_order >= 8 && q.display_order <= 10)
       : [];
     const firstNameQuestion = gmQuestions.find(q => q.display_order === 8);
