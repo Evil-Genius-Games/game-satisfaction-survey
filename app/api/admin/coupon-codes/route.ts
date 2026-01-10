@@ -5,15 +5,51 @@ import pool from '@/lib/db';
 export async function GET(request: Request) {
   const client = await pool.connect();
   try {
+    // Check if table exists first
+    const tableCheck = await client.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'coupon_codes'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      // Table doesn't exist yet, return empty array
+      return NextResponse.json([]);
+    }
+    
+    // Check if columns exist
+    const columnsCheck = await client.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+      AND table_name = 'coupon_codes'
+      AND column_name IN ('copied_at', 'emailed_at');
+    `);
+    
+    const hasCopiedAt = columnsCheck.rows.some((r: any) => r.column_name === 'copied_at');
+    const hasEmailedAt = columnsCheck.rows.some((r: any) => r.column_name === 'emailed_at');
+    
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
+    
+    // Build query based on which columns exist
+    let usedCondition = 'FALSE';
+    if (hasCopiedAt && hasEmailedAt) {
+      usedCondition = '(copied_at IS NOT NULL OR emailed_at IS NOT NULL)';
+    } else if (hasCopiedAt) {
+      usedCondition = 'copied_at IS NOT NULL';
+    } else if (hasEmailedAt) {
+      usedCondition = 'emailed_at IS NOT NULL';
+    }
     
     // Calculate status based on copied_at, emailed_at, and expires_at
     let query = `
       SELECT *,
         CASE 
-          WHEN expires_at < CURRENT_TIMESTAMP THEN 'expired'
-          WHEN copied_at IS NOT NULL OR emailed_at IS NOT NULL THEN 'used'
+          WHEN expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP THEN 'expired'
+          WHEN ${usedCondition} THEN 'used'
           ELSE 'available'
         END as computed_status
       FROM coupon_codes 
@@ -25,15 +61,15 @@ export async function GET(request: Request) {
       query = `
         SELECT *,
           CASE 
-            WHEN expires_at < CURRENT_TIMESTAMP THEN 'expired'
-            WHEN copied_at IS NOT NULL OR emailed_at IS NOT NULL THEN 'used'
+            WHEN expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP THEN 'expired'
+            WHEN ${usedCondition} THEN 'used'
             ELSE 'available'
           END as computed_status
         FROM coupon_codes 
         WHERE (
           CASE 
-            WHEN expires_at < CURRENT_TIMESTAMP THEN 'expired'
-            WHEN copied_at IS NOT NULL OR emailed_at IS NOT NULL THEN 'used'
+            WHEN expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP THEN 'expired'
+            WHEN ${usedCondition} THEN 'used'
             ELSE 'available'
           END
         ) = $1

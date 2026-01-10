@@ -1182,15 +1182,15 @@ export default function AdminPanel() {
                       }}>
                         {(() => {
                           // Get conventions from the convention question options (same as Setup tab)
-                          const conventionQuestion = questions.find(q => 
-                            q.question_text === 'What convention are you attending?'
-                          );
+                          const conventionQuestion = questions && Array.isArray(questions)
+                            ? questions.find(q => q.question_text === 'What convention are you attending?')
+                            : null;
                           const conventionOptions = conventionQuestion?.options || [];
                           
                           // Use question options if available, otherwise fall back to conventions state
                           const availableConventions = conventionOptions.length > 0
                             ? conventionOptions.map((opt: any) => opt.option_text || opt.option_value).filter(Boolean)
-                            : conventions;
+                            : (conventions && Array.isArray(conventions) ? conventions : []);
                           
                           const sortedConventions = availableConventions
                             .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
@@ -1231,9 +1231,11 @@ export default function AdminPanel() {
                                     // If this was an existing association, remove it from database
                                     if (newAssociationGM) {
                                       const gmId = parseInt(newAssociationGM);
-                                      const existingAssociation = gmConventions.find(
-                                        (assoc: any) => assoc.gm_interest_id === gmId && assoc.convention === conv
-                                      );
+                                      const existingAssociation = gmConventions && Array.isArray(gmConventions)
+                                        ? gmConventions.find(
+                                            (assoc: any) => assoc.gm_interest_id === gmId && assoc.convention === conv
+                                          )
+                                        : null;
                                       
                                       if (existingAssociation) {
                                         try {
@@ -1303,15 +1305,15 @@ export default function AdminPanel() {
                       }}>
                         {(() => {
                           // Get adventures from the adventure question options
-                          const adventureQuestion = questions.find(q => 
-                            q.question_text === 'What adventure did you play?'
-                          );
+                          const adventureQuestion = questions && Array.isArray(questions)
+                            ? questions.find(q => q.question_text === 'What adventure did you play?')
+                            : null;
                           const adventureOptions = adventureQuestion?.options || [];
                           
                           // Use question options if available, otherwise fall back to adventures state
                           const availableAdventures = adventureOptions.length > 0
                             ? adventureOptions.map((opt: any) => opt.option_text || opt.option_value).filter(Boolean)
-                            : adventures;
+                            : (adventures && Array.isArray(adventures) ? adventures : []);
                           
                           const sortedAdventures = availableAdventures
                             .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
@@ -1352,9 +1354,11 @@ export default function AdminPanel() {
                                   // If this was an existing association, remove it from database
                                   if (newAssociationGM) {
                                     const gmId = parseInt(newAssociationGM);
-                                    const existingAssociation = gmAdventures.find(
-                                      (assoc: any) => assoc.gm_interest_id === gmId && assoc.adventure === adv
-                                    );
+                                    const existingAssociation = gmAdventures && Array.isArray(gmAdventures)
+                                      ? gmAdventures.find(
+                                          (assoc: any) => assoc.gm_interest_id === gmId && assoc.adventure === adv
+                                        )
+                                      : null;
                                     
                                     if (existingAssociation) {
                                       try {
@@ -1816,15 +1820,15 @@ export default function AdminPanel() {
                       <option value="">Select a convention...</option>
                       {(() => {
                         // Get conventions from the convention question options (same as Setup and GM Assignments tabs)
-                        const conventionQuestion = questions.find(q => 
-                          q.question_text === 'What convention are you attending?'
-                        );
+                        const conventionQuestion = questions && Array.isArray(questions) 
+                          ? questions.find(q => q.question_text === 'What convention are you attending?')
+                          : null;
                         const conventionOptions = conventionQuestion?.options || [];
                         
                         // Use question options if available, otherwise fall back to conventions state
                         const availableConventions = conventionOptions.length > 0
                           ? conventionOptions.map((opt: any) => opt.option_text || opt.option_value).filter(Boolean)
-                          : conventions;
+                          : (conventions && Array.isArray(conventions) ? conventions : []);
                         
                         // Sort alphabetically
                         const sortedConventions = availableConventions

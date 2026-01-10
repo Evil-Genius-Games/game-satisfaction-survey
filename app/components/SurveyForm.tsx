@@ -40,8 +40,10 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   // Auto-fill convention if pre-selected and find display name
   useEffect(() => {
     if (preSelectedConvention && survey) {
-      const conventionQuestion = survey.questions.find(q => q.question_text === 'What convention are you attending?');
-      if (conventionQuestion && conventionQuestion.options) {
+      const conventionQuestion = survey && survey.questions && Array.isArray(survey.questions)
+        ? survey.questions.find(q => q.question_text === 'What convention are you attending?')
+        : null;
+      if (conventionQuestion && conventionQuestion.options && Array.isArray(conventionQuestion.options)) {
         // First try to match by option_value (the stored value, e.g., "gen_con")
         let matchingOption = conventionQuestion.options.find(
           opt => opt.option_value?.toLowerCase() === preSelectedConvention.toLowerCase()
@@ -103,7 +105,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
   // Filter questions based on conditional logic
   const visibleQuestions = useMemo(() => {
-    if (!survey) return [];
+    if (!survey || !survey.questions || !Array.isArray(survey.questions)) return [];
     
     const questions = survey.questions;
     const gmInterestQuestion = questions.find(q => q.display_order === 7);
@@ -168,11 +170,13 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     if (!survey) return;
     
     // Find GM question (may vary, but typically contains "GM" or "game master")
-    const gmQuestion = survey.questions.find(q => 
-      q.question_text?.toLowerCase().includes('gm') || 
-      q.question_text?.toLowerCase().includes('game master') ||
-      q.question_text?.toLowerCase().includes('who was your')
-    );
+    const gmQuestion = survey && survey.questions && Array.isArray(survey.questions)
+      ? survey.questions.find(q => 
+          q.question_text?.toLowerCase().includes('gm') || 
+          q.question_text?.toLowerCase().includes('game master') ||
+          q.question_text?.toLowerCase().includes('who was your')
+        )
+      : null;
     
     const selectedGMId = gmQuestion ? answers[gmQuestion.id] : null;
     
@@ -208,10 +212,12 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       
       // If they answer "no" to "Would you like to learn more about being a GM?"
       // Clear name and email answers
-      if (questionId === survey?.questions.find(q => q.display_order === 7)?.id && value === 'no') {
-        const firstNameQuestion = survey?.questions.find(q => q.display_order === 8);
-        const lastNameQuestion = survey?.questions.find(q => q.display_order === 9);
-        const emailQuestion = survey?.questions.find(q => q.display_order === 10);
+      const questions = survey?.questions && Array.isArray(survey.questions) ? survey.questions : [];
+      const gmInterestQuestion = questions.find(q => q.display_order === 7);
+      if (questionId === gmInterestQuestion?.id && value === 'no') {
+        const firstNameQuestion = questions.find(q => q.display_order === 8);
+        const lastNameQuestion = questions.find(q => q.display_order === 9);
+        const emailQuestion = questions.find(q => q.display_order === 10);
         if (firstNameQuestion) delete newAnswers[firstNameQuestion.id];
         if (lastNameQuestion) delete newAnswers[lastNameQuestion.id];
         if (emailQuestion) delete newAnswers[emailQuestion.id];
@@ -223,7 +229,8 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
   const handleNext = async () => {
     // Check if we're on the recommendation question (Q6)
-    const recommendationQuestion = survey?.questions.find(q => q.display_order === 6);
+    const questions = survey?.questions && Array.isArray(survey.questions) ? survey.questions : [];
+    const recommendationQuestion = questions.find(q => q.display_order === 6);
     const currentQ = visibleQuestions[currentQuestion];
     
     // If we just answered the recommendation question, submit survey and show coupon page
@@ -254,13 +261,14 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       .map(q => q.id) || [];
     
     // Get convention question
-    const conventionQuestion = survey?.questions.find(q => q.question_text === 'What convention are you attending?');
+    const questions = survey?.questions && Array.isArray(survey.questions) ? survey.questions : [];
+    const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
     
     // Get all answers up to and including the recommendation question (exclude GM questions)
     const answerArray = Object.entries(answers)
       .filter(([questionId]) => !gmQuestionIds.includes(parseInt(questionId)))
       .map(([questionId, value]) => {
-        const question = survey?.questions.find(q => q.id === parseInt(questionId));
+        const question = questions.find(q => q.id === parseInt(questionId));
         
         if (Array.isArray(value)) {
           // Multiple choice - create multiple answer entries
@@ -386,14 +394,15 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       .map(q => q.id) || [];
     
     // Get convention question
-    const conventionQuestion = survey?.questions.find(q => q.question_text === 'What convention are you attending?');
+    const questions = survey?.questions && Array.isArray(survey.questions) ? survey.questions : [];
+    const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
     
     // Exclude GM questions from main survey answers
     // Include convention answer if pre-selected, even if question was hidden
     const answerArray = Object.entries(answers)
       .filter(([questionId]) => !gmQuestionIds.includes(parseInt(questionId)))
       .map(([questionId, value]) => {
-        const question = survey?.questions.find(q => q.id === parseInt(questionId));
+        const question = questions.find(q => q.id === parseInt(questionId));
         
         if (Array.isArray(value)) {
           // Multiple choice - create multiple answer entries
@@ -456,6 +465,9 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     
     // Get GM questions (display_order 8, 9, 10)
     const gmQuestions = survey?.questions.filter(q => q.display_order >= 8 && q.display_order <= 10) || [];
+    const gmQuestionsArray = survey?.questions && Array.isArray(survey.questions) 
+      ? survey.questions.filter(q => q.display_order >= 8 && q.display_order <= 10)
+      : [];
     const firstNameQuestion = gmQuestions.find(q => q.display_order === 8);
     const lastNameQuestion = gmQuestions.find(q => q.display_order === 9);
     const emailQuestion = gmQuestions.find(q => q.display_order === 10);
