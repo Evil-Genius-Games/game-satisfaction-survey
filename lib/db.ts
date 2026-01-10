@@ -4,13 +4,28 @@ if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL environment variable is not set');
 }
 
+// Configure SSL based on connection string
+const getSslConfig = () => {
+  if (!process.env.DATABASE_URL) return undefined;
+  
+  const connectionString = process.env.DATABASE_URL;
+  
+  // Neon and other cloud databases typically require SSL
+  if (connectionString.includes('neon.tech') || 
+      connectionString.includes('sslmode=require') || 
+      connectionString.includes('ssl=true') ||
+      connectionString.includes('vercel-postgres')) {
+    return {
+      rejectUnauthorized: false
+    };
+  }
+  
+  return undefined;
+};
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('sslmode=require') || process.env.DATABASE_URL?.includes('ssl=true') 
-    ? {
-        rejectUnauthorized: false
-      }
-    : undefined,
+  ssl: getSslConfig(),
   max: 20, // Maximum number of clients in the pool
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
   connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection could not be established
