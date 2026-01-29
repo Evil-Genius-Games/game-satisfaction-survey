@@ -42,7 +42,7 @@ interface Response {
 }
 
 export default function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'dropdowns' | 'responses' | 'gm-interest' | 'graphs' | 'settings'>('dropdowns');
+  const [activeTab, setActiveTab] = useState<'dropdowns' | 'responses' | 'gm-interest' | 'graphs' | 'settings' | 'gm-adventures'>('dropdowns');
   const [ratingData, setRatingData] = useState<any>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [responses, setResponses] = useState<Response[]>([]);
@@ -50,7 +50,7 @@ export default function AdminPanel() {
   const [editingOption, setEditingOption] = useState<{ questionId: number; optionId: number; text: string } | null>(null);
   const [groupBy, setGroupBy] = useState<'convention' | 'game' | 'none'>('none');
   const [graphConventionFilter, setGraphConventionFilter] = useState<string>('all');
-  const [conventions, setConventions] = useState<string[]>([]);
+  const [conventions, setConventions] = useState<Array<{ value: string; display: string }>>([]);
   const [gmInterestData, setGmInterestData] = useState<any[]>([]);
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<any>(null);
@@ -60,6 +60,8 @@ export default function AdminPanel() {
   const [qrCodeLink, setQrCodeLink] = useState<string>('');
   const [qrCodeConvention, setQrCodeConvention] = useState<string>('');
   const qrCodeRef = useRef<HTMLDivElement>(null);
+  const [gmAdventures, setGmAdventures] = useState<any>(null);
+  const [selectedGMOptionId, setSelectedGMOptionId] = useState<number | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -95,8 +97,25 @@ export default function AdminPanel() {
     if (activeTab === 'graphs' && conventions.length === 0) {
       fetchConventions();
     }
+    if (activeTab === 'gm-adventures') {
+      fetchGmAdventures();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // Refresh GM adventures when GM question options change
+  useEffect(() => {
+    if (activeTab === 'gm-adventures') {
+      const gmQuestion = questions.find(q => 
+        (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+        ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+      );
+      if (gmQuestion) {
+        fetchGmAdventures();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questions, activeTab]);
 
   useEffect(() => {
     fetchRatingData();
@@ -116,7 +135,15 @@ export default function AdminPanel() {
       
       if (res.ok) {
         const data = await res.json();
-        setConventions(Array.isArray(data) ? data : []);
+        // Handle both old format (strings) and new format (objects)
+        const formattedConventions = Array.isArray(data) 
+          ? data.map((conv: any) => 
+              typeof conv === 'string' 
+                ? { value: conv, display: conv.charAt(0).toUpperCase() + conv.slice(1).replace(/_/g, ' ') }
+                : conv
+            )
+          : [];
+        setConventions(formattedConventions);
       } else {
         const errorText = await res.text();
         console.error('Failed to fetch conventions:', res.status, errorText);
@@ -149,6 +176,125 @@ export default function AdminPanel() {
     } catch (error: any) {
       console.error('Error fetching GM interest:', error);
       setGmInterestData([]);
+    }
+  };
+
+  const fetchGmAdventures = async () => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const res = await fetch('/api/admin/gm-adventures', {
+        signal: controller.signal,
+        cache: 'no-store'
+      });
+      clearTimeout(timeoutId);
+      
+      if (res.ok) {
+        const data = await res.json();
+        // Ensure adventuresByConvention exists for all GMs
+        if (data.gms && Array.isArray(data.gms)) {
+          data.gms = data.gms.map((gm: any) => ({
+            ...gm,
+            adventuresByConvention: gm.adventuresByConvention || {}
+          }));
+        }
+        setGmAdventures(data);
+      } else {
+        const errorText = await res.text();
+        console.error('Failed to fetch GM adventures:', res.status, errorText);
+        setGmAdventures(null);
+      }
+    } catch (error: any) {
+      console.error('Error fetching GM adventures:', error);
+      setGmAdventures(null);
+    }
+  };
+
+  const handleAssociateConvention = async (gmOptionId: number, conventionOptionId: number) => {
+    try {
+      const res = await fetch('/api/admin/gm-adventures', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'associate_convention',
+          gm_option_id: gmOptionId,
+          convention_option_id: conventionOptionId
+        })
+      });
+
+      if (res.ok) {
+        fetchGmAdventures();
+      } else {
+        const error = await res.json();
+        alert('Failed to associate convention: ' + (error.message || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error associating convention:', error);
+      alert('Failed to associate convention');
+    }
+  };
+
+  const handleAssociateAdventure = async (gmOptionId: number, conventionOptionId: number, adventureOptionId: number) => {
+    try {
+      const res = await fetch('/api/admin/gm-adventures', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'associate_adventure',
+          gm_option_id: gmOptionId,
+          convention_option_id: conventionOptionId,
+          adventure_option_id: adventureOptionId
+        })
+      });
+
+      if (res.ok) {
+        fetchGmAdventures();
+      } else {
+        const error = await res.json();
+        alert('Failed to associate adventure: ' + (error.message || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error associating adventure:', error);
+      alert('Failed to associate adventure');
+    }
+  };
+
+  const handleRemoveConventionAssociation = async (gmOptionId: number, conventionOptionId: number) => {
+    if (!confirm('Remove this convention association?')) return;
+
+    try {
+      const res = await fetch(`/api/admin/gm-adventures?type=convention&gm_option_id=${gmOptionId}&convention_option_id=${conventionOptionId}`, {
+        method: 'DELETE'
+      });
+
+      if (res.ok) {
+        fetchGmAdventures();
+      } else {
+        alert('Failed to remove convention association');
+      }
+    } catch (error) {
+      console.error('Error removing convention association:', error);
+      alert('Failed to remove convention association');
+    }
+  };
+
+  const handleRemoveAssociation = async (gmOptionId: number, conventionOptionId: number, adventureOptionId: number) => {
+    if (!confirm('Remove this adventure association?')) return;
+
+    try {
+      const res = await fetch(`/api/admin/gm-adventures?type=adventure&gm_option_id=${gmOptionId}&convention_option_id=${conventionOptionId}&adventure_option_id=${adventureOptionId}`, {
+        method: 'DELETE'
+      });
+
+      if (res.ok) {
+        fetchGmAdventures();
+      } else {
+        alert('Failed to remove association');
+      }
+    } catch (error) {
+      console.error('Error removing association:', error);
+      alert('Failed to remove association');
     }
   };
 
@@ -206,6 +352,11 @@ export default function AdminPanel() {
       
       const data = await res.json();
       setQuestions(Array.isArray(data) ? data : []);
+      
+      // If GM Associations tab is active, refresh GM data to reflect any changes
+      if (activeTab === 'gm-adventures') {
+        fetchGmAdventures();
+      }
     } catch (error: any) {
       console.error('Error fetching questions:', error);
       setQuestions([]);
@@ -495,6 +646,21 @@ export default function AdminPanel() {
             Dropdown Options
           </button>
           <button
+            onClick={() => setActiveTab('gm-adventures')}
+            style={{
+              flex: 1,
+              padding: '1rem',
+              border: 'none',
+              background: activeTab === 'gm-adventures' ? '#667eea' : 'transparent',
+              color: activeTab === 'gm-adventures' ? 'white' : '#333',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              fontWeight: 600
+            }}
+          >
+            GM Associations
+          </button>
+          <button
             onClick={() => setActiveTab('graphs')}
             style={{
               flex: 1,
@@ -537,7 +703,7 @@ export default function AdminPanel() {
               fontWeight: 600
             }}
           >
-            GM Interest
+            GM Interest Form
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -811,15 +977,18 @@ export default function AdminPanel() {
                     }}
                   >
                     <option value="all">All Conventions</option>
-                    {conventions.length > 0 ? (
-                      conventions.map(conv => (
-                        <option key={conv} value={conv}>
-                          {conv.charAt(0).toUpperCase() + conv.slice(1).replace(/_/g, ' ')}
-                        </option>
-                      ))
-                    ) : (
-                      <option disabled>Loading conventions...</option>
-                    )}
+                    {(() => {
+                      // Get conventions from the convention question options (same as Dropdown Options tab)
+                      const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
+                      if (conventionQuestion && conventionQuestion.options) {
+                        return conventionQuestion.options.map(option => (
+                          <option key={option.id} value={option.option_value || option.option_text}>
+                            {option.option_text}
+                          </option>
+                        ));
+                      }
+                      return <option disabled>Loading conventions...</option>;
+                    })()}
                   </select>
                   {conventions.length === 0 && (
                     <span style={{ fontSize: '0.85rem', color: '#666', marginLeft: '0.5rem' }}>
@@ -860,6 +1029,254 @@ export default function AdminPanel() {
             </div>
           )}
 
+          {activeTab === 'gm-adventures' && (
+            <div>
+              <h2 style={{ marginBottom: '1.5rem' }}>GM Associations</h2>
+              <p style={{ marginBottom: '1.5rem', color: '#666', fontSize: '0.95rem' }}>
+                Associate GMs with conventions and adventures. Select a GM from the dropdown (GMs are managed in the "Dropdown Options" tab). 
+                First, associate the GM with convention(s), then associate with adventures. When customers select a GM in the survey, only adventures associated with that GM will be shown.
+              </p>
+
+              {/* Select GM */}
+              {gmAdventures && gmAdventures.gmQuestion && (
+                <div style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.95rem' }}>
+                    Select GM ({gmAdventures.gmQuestion.question_text}):
+                  </label>
+                  <select
+                    value={selectedGMOptionId || ''}
+                    onChange={(e) => setSelectedGMOptionId(e.target.value ? parseInt(e.target.value) : null)}
+                    style={{
+                      padding: '0.5rem',
+                      border: '1px solid #ccc',
+                      borderRadius: '4px',
+                      fontSize: '0.95rem',
+                      minWidth: '300px'
+                    }}
+                  >
+                    <option value="">Select a GM...</option>
+                    {gmAdventures.gms && gmAdventures.gms.map((gm: any) => (
+                      <option key={gm.id} value={gm.id}>
+                        {gm.option_text}
+                      </option>
+                    ))}
+                  </select>
+                  {!gmAdventures.gms || gmAdventures.gms.length === 0 && (
+                    <p style={{ marginTop: '0.5rem', color: '#e74c3c', fontSize: '0.9rem' }}>
+                      No GMs found. Please add GM options to the "{gmAdventures.gmQuestion.question_text}" question in the "Dropdown Options" tab.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Show selected GM's associations */}
+              {selectedGMOptionId && gmAdventures && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  {(() => {
+                    const selectedGM = gmAdventures.gms.find((gm: any) => gm.id === selectedGMOptionId);
+                    if (!selectedGM) return null;
+
+                    return (
+                      <>
+                        {/* Step 1: Associate with Conventions */}
+                        <div style={{ padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+                          <div style={{ marginBottom: '1rem' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>{selectedGM.option_text}</h3>
+                            <p style={{ margin: '0.5rem 0 0 0', color: '#666', fontSize: '0.9rem' }}>Step 1: Associate with Conventions</p>
+                          </div>
+
+                          <div style={{ marginBottom: '1rem' }}>
+                            <h4 style={{ marginBottom: '0.75rem', fontSize: '1rem', fontWeight: 600 }}>Associated Conventions:</h4>
+                            {selectedGM.conventions && selectedGM.conventions.length > 0 ? (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                {selectedGM.conventions.map((convention: any) => (
+                                  <div
+                                    key={convention.id}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.5rem',
+                                      padding: '0.5rem 1rem',
+                                      background: 'white',
+                                      borderRadius: '4px',
+                                      border: '1px solid #ccc'
+                                    }}
+                                  >
+                                    <span>{convention.option_text}</span>
+                                    <button
+                                      onClick={() => handleRemoveConventionAssociation(selectedGM.id, convention.id)}
+                                      style={{
+                                        padding: '0.25rem 0.5rem',
+                                        background: '#e74c3c',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '3px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem'
+                                      }}
+                                      title="Remove association"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p style={{ color: '#666', fontStyle: 'italic' }}>No conventions associated yet</p>
+                            )}
+                          </div>
+
+                          {/* Add Convention to GM */}
+                          {gmAdventures.availableConventions && gmAdventures.availableConventions.length > 0 && (
+                            <div>
+                              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.95rem' }}>
+                                Add Convention:
+                              </label>
+                              <select
+                                onChange={(e) => {
+                                  const conventionId = parseInt(e.target.value);
+                                  if (conventionId) {
+                                    handleAssociateConvention(selectedGM.id, conventionId);
+                                    e.target.value = '';
+                                  }
+                                }}
+                                style={{
+                                  padding: '0.5rem',
+                                  border: '1px solid #ccc',
+                                  borderRadius: '4px',
+                                  fontSize: '0.95rem',
+                                  minWidth: '200px'
+                                }}
+                              >
+                                <option value="">Select a convention...</option>
+                                {gmAdventures.availableConventions
+                                  .filter((conv: any) => !selectedGM.conventions.some((c: any) => c.id === conv.id))
+                                  .map((convention: any) => (
+                                    <option key={convention.id} value={convention.id}>
+                                      {convention.option_text}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Step 2: Associate with Adventures (grouped by convention) */}
+                        {selectedGM.conventions && selectedGM.conventions.length > 0 ? (
+                          selectedGM.conventions.map((convention: any) => {
+                            // Handle both string and number keys
+                            const conventionKey = convention.id;
+                            const conventionData = selectedGM.adventuresByConvention?.[conventionKey] || 
+                                                   selectedGM.adventuresByConvention?.[String(conventionKey)] ||
+                                                   selectedGM.adventuresByConvention?.[Number(conventionKey)];
+                            const conventionAdventures = conventionData?.adventures || [];
+                            const allAdventuresForConvention = conventionAdventures.map((a: any) => a.id);
+                            
+                            return (
+                              <div key={convention.id} style={{ padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0', marginTop: '1rem' }}>
+                                <div style={{ marginBottom: '1rem' }}>
+                                  <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+                                    Adventures for {convention.option_text}:
+                                  </h4>
+                                </div>
+
+                                <div style={{ marginBottom: '1rem' }}>
+                                  {conventionAdventures.length > 0 ? (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                      {conventionAdventures.map((adventure: any) => (
+                                        <div
+                                          key={adventure.id}
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem',
+                                            padding: '0.5rem 1rem',
+                                            background: 'white',
+                                            borderRadius: '4px',
+                                            border: '1px solid #ccc'
+                                          }}
+                                        >
+                                          <span>{adventure.option_text}</span>
+                                          <button
+                                            onClick={() => handleRemoveAssociation(selectedGM.id, convention.id, adventure.id)}
+                                            style={{
+                                              padding: '0.25rem 0.5rem',
+                                              background: '#e74c3c',
+                                              color: 'white',
+                                              border: 'none',
+                                              borderRadius: '3px',
+                                              cursor: 'pointer',
+                                              fontSize: '0.8rem'
+                                            }}
+                                            title="Remove association"
+                                          >
+                                            ×
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p style={{ color: '#666', fontStyle: 'italic' }}>No adventures associated for this convention yet</p>
+                                  )}
+                                </div>
+
+                                {/* Add Adventure to GM for this Convention */}
+                                {gmAdventures.availableAdventures && gmAdventures.availableAdventures.length > 0 && (
+                                  <div>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.95rem' }}>
+                                      Add Adventure for {convention.option_text}:
+                                    </label>
+                                    <select
+                                      onChange={(e) => {
+                                        const adventureId = parseInt(e.target.value);
+                                        if (adventureId) {
+                                          handleAssociateAdventure(selectedGM.id, convention.id, adventureId);
+                                          e.target.value = '';
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '0.5rem',
+                                        border: '1px solid #ccc',
+                                        borderRadius: '4px',
+                                        fontSize: '0.95rem',
+                                        minWidth: '200px'
+                                      }}
+                                    >
+                                      <option value="">Select an adventure...</option>
+                                      {gmAdventures.availableAdventures
+                                        .filter((adv: any) => !allAdventuresForConvention.includes(adv.id))
+                                        .map((adventure: any) => (
+                                          <option key={adventure.id} value={adventure.id}>
+                                            {adventure.option_text}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div style={{ padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0', marginTop: '1rem' }}>
+                            <p style={{ color: '#666', fontStyle: 'italic' }}>
+                              Please associate this GM with at least one convention first (Step 1) before adding adventures.
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {!selectedGMOptionId && (
+                <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+                  Select a GM from the dropdown above to manage their convention and adventure associations.
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'settings' && (
             <div>
               <h2 style={{ marginBottom: '1.5rem' }}>Settings</h2>
@@ -886,9 +1303,18 @@ export default function AdminPanel() {
                       }}
                     >
                       <option value="">Select a convention...</option>
-                      {conventions.map(conv => (
-                        <option key={conv} value={conv}>{conv}</option>
-                      ))}
+                      {(() => {
+                        // Get conventions from the convention question options (same as Dropdown Options tab)
+                        const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
+                        if (conventionQuestion && conventionQuestion.options) {
+                          return conventionQuestion.options.map(option => (
+                            <option key={option.id} value={option.option_value || option.option_text}>
+                              {option.option_text}
+                            </option>
+                          ));
+                        }
+                        return null;
+                      })()}
                     </select>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
                       <button
@@ -902,6 +1328,10 @@ export default function AdminPanel() {
                           
                           const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
                           const surveyLink = `${baseUrl}/?convention=${encodeURIComponent(selectedConvention)}`;
+                          
+                          // Find the display name for the selected convention
+                          const selectedConv = conventions.find(c => c.value === selectedConvention);
+                          const displayName = selectedConv?.display || selectedConvention;
                           
                           // Copy to clipboard
                           navigator.clipboard.writeText(surveyLink).then(() => {
@@ -936,9 +1366,13 @@ export default function AdminPanel() {
                           const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
                           const surveyLink = `${baseUrl}/?convention=${encodeURIComponent(selectedConvention)}`;
                           
+                          // Find the display name for the selected convention
+                          const selectedConv = conventions.find(c => c.value === selectedConvention);
+                          const displayName = selectedConv?.display || selectedConvention;
+                          
                           // Show QR code modal
                           setQrCodeLink(surveyLink);
-                          setQrCodeConvention(selectedConvention);
+                          setQrCodeConvention(displayName);
                           setShowQrCode(true);
                         }}
                         style={{

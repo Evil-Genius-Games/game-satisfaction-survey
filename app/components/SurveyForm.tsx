@@ -27,6 +27,12 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   const [couponDelivered, setCouponDelivered] = useState(false);
   const [conventionDisplayName, setConventionDisplayName] = useState<string | null>(null);
   const isSubmittingRef = useRef(false);
+  const [selectedGMName, setSelectedGMName] = useState<string | null>(null);
+  const [selectedGMOptionId, setSelectedGMOptionId] = useState<number | null>(null);
+  const [filteredAdventures, setFilteredAdventures] = useState<any[]>([]);
+  const [filteredGMs, setFilteredGMs] = useState<any[]>([]);
+  const [selectedConventionOptionId, setSelectedConventionOptionId] = useState<number | null>(null);
+  const previousConventionRef = useRef<string | null>(null);
   
   // Generate a temporary coupon code for QR code display
   const tempCouponCode = useMemo(() => {
@@ -108,6 +114,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     const gmInterestQuestion = questions.find(q => q.display_order === 7);
     const wantsToLearnGM = gmInterestQuestion && answers[gmInterestQuestion.id] === 'yes';
     const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
+    const adventureQuestion = questions.find(q => q.question_text === 'What adventure did you play?');
     
     const filtered = questions.filter(q => {
       // If skipping to GM questions, only show those
@@ -130,8 +137,27 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       
       return false;
     });
+
+    // Insert GM selection before adventure question if GMs exist and adventure question is visible
+    // Find GM question (question with "GM" or "Game Master" in text)
+    const gmQuestion = questions.find(q => 
+      (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+      ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+    );
+
+    const result = [...filtered];
+    // Insert GM question before adventure question if both exist
+    if (gmQuestion && adventureQuestion && filtered.some(q => q.id === adventureQuestion.id)) {
+      const adventureIndex = result.findIndex(q => q.id === adventureQuestion.id);
+      const gmIndex = result.findIndex(q => q.id === gmQuestion.id);
+      
+      // If GM question is not already in filtered, insert it before adventure
+      if (gmIndex === -1 && adventureIndex !== -1) {
+        result.splice(adventureIndex, 0, gmQuestion);
+      }
+    }
     
-    return filtered;
+    return result;
   }, [survey, answers, skipToGMQuestions, preSelectedConvention]);
 
   // Adjust current question index if visible questions change
@@ -154,9 +180,346 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         console.error('Error fetching survey:', err);
         setLoading(false);
       });
+
   }, [surveyId]);
 
+  // Fetch GMs when convention is selected (either from answers or preSelectedConvention)
+  useEffect(() => {
+    const conventionQuestion = survey?.questions.find(q => q.question_text === 'What convention are you attending?');
+    const selectedConvention = conventionQuestion && (answers[conventionQuestion.id] || preSelectedConvention);
+    
+    if (selectedConvention && conventionQuestion) {
+      // Find the convention option to get its ID or value
+      const conventionOption = conventionQuestion.options?.find((opt: any) => {
+        const optValue = opt.option_value || opt.option_text;
+        const selectedValue = selectedConvention;
+        const optValueStr = optValue != null ? String(optValue).toLowerCase() : '';
+        const optTextStr = opt.option_text != null ? String(opt.option_text).toLowerCase() : '';
+        const selectedValueStr = selectedValue != null ? String(selectedValue).toLowerCase() : '';
+        return optValueStr === selectedValueStr || optTextStr === selectedValueStr;
+      });
+      
+      if (conventionOption) {
+        setSelectedConventionOptionId(conventionOption.id);
+        // Fetch GMs for this convention (API will return all GMs if no associations exist)
+        fetch(`/api/survey/gms-by-convention?convention_option_id=${conventionOption.id}`)
+          .then(res => {
+            if (!res.ok) {
+              throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+          })
+          .then(data => {
+            if (data.gms && Array.isArray(data.gms)) {
+              // API returns all GMs if convention has no associations, so always set it
+              setFilteredGMs(data.gms);
+            } else {
+              // If no GMs in response, fall back to all GMs from question options
+              const gmQuestion = survey?.questions.find(q => 
+                (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+                ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+              );
+              if (gmQuestion && gmQuestion.options) {
+                setFilteredGMs(gmQuestion.options.map((opt: any) => ({
+                  id: opt.id,
+                  option_text: opt.option_text,
+                  option_value: opt.option_value
+                })));
+              } else {
+                setFilteredGMs([]);
+              }
+            }
+          })
+          .catch(err => {
+            console.error('Error fetching GMs by convention:', err);
+            // On error, fall back to all GMs from question options
+            const gmQuestion = survey?.questions.find(q => 
+              (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+              ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+            );
+            if (gmQuestion && gmQuestion.options) {
+              setFilteredGMs(gmQuestion.options.map((opt: any) => ({
+                id: opt.id,
+                option_text: opt.option_text,
+                option_value: opt.option_value
+              })));
+            } else {
+              setFilteredGMs([]);
+            }
+          });
+      } else {
+        // Try by value/name
+        fetch(`/api/survey/gms-by-convention?convention_value=${encodeURIComponent(selectedConvention)}`)
+          .then(res => {
+            if (!res.ok) {
+              throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+          })
+          .then(data => {
+            if (data.gms && Array.isArray(data.gms)) {
+              // API returns all GMs if convention has no associations, so always set it
+              setFilteredGMs(data.gms);
+            } else {
+              // If no GMs in response, fall back to all GMs from question options
+              const gmQuestion = survey?.questions.find(q => 
+                (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+                ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+              );
+              if (gmQuestion && gmQuestion.options) {
+                setFilteredGMs(gmQuestion.options.map((opt: any) => ({
+                  id: opt.id,
+                  option_text: opt.option_text,
+                  option_value: opt.option_value
+                })));
+              } else {
+                setFilteredGMs([]);
+              }
+            }
+          })
+          .catch(err => {
+            console.error('Error fetching GMs by convention:', err);
+            // On error, fall back to all GMs from question options
+            const gmQuestion = survey?.questions.find(q => 
+              (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+              ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+            );
+            if (gmQuestion && gmQuestion.options) {
+              setFilteredGMs(gmQuestion.options.map((opt: any) => ({
+                id: opt.id,
+                option_text: opt.option_text,
+                option_value: opt.option_value
+              })));
+            } else {
+              setFilteredGMs([]);
+            }
+          });
+      }
+      
+      // Clear GM and adventure selections when convention changes (only if convention actually changed)
+      const currentConvention = answers[conventionQuestion.id] || preSelectedConvention;
+      if (previousConventionRef.current !== null && previousConventionRef.current !== currentConvention) {
+        setSelectedGMOptionId(null);
+        setSelectedGMName(null);
+        setFilteredAdventures([]);
+        const gmQuestion = survey?.questions.find(q => 
+          (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master'))
+        );
+        const adventureQuestion = survey?.questions.find(q => q.question_text === 'What adventure did you play?');
+        if (gmQuestion) {
+          setAnswers(prev => {
+            const newAnswers = { ...prev };
+            delete newAnswers[gmQuestion.id];
+            return newAnswers;
+          });
+        }
+        if (adventureQuestion) {
+          setAnswers(prev => {
+            const newAnswers = { ...prev };
+            delete newAnswers[adventureQuestion.id];
+            return newAnswers;
+          });
+        }
+      }
+      previousConventionRef.current = currentConvention;
+    } else {
+      setSelectedConventionOptionId(null);
+      setFilteredGMs([]);
+    }
+  }, [answers, survey, preSelectedConvention]);
+
+  // Sync selectedGMOptionId with GM answer if GM was already answered, and fetch adventures
+  useEffect(() => {
+    if (survey) {
+      const gmQuestion = survey.questions.find(q => 
+        (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+        ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+      );
+      
+      if (gmQuestion && answers[gmQuestion.id]) {
+        const gmAnswerValue = answers[gmQuestion.id];
+        
+        // Find the GM option to get its ID
+        let matchedOption = filteredGMs.find((gm: any) => {
+          const gmValue = gm.option_value || gm.option_text;
+          return gmValue === gmAnswerValue || String(gmValue) === String(gmAnswerValue);
+        });
+        
+        if (!matchedOption && gmQuestion.options) {
+          matchedOption = gmQuestion.options.find((opt: any) => {
+            const optValue = opt.option_value || opt.option_text;
+            return optValue === gmAnswerValue || String(optValue) === String(gmAnswerValue);
+          });
+        }
+        
+        if (matchedOption && matchedOption.id !== selectedGMOptionId) {
+          console.log('Syncing GM option ID from answer:', matchedOption);
+          setSelectedGMOptionId(matchedOption.id);
+          setSelectedGMName(matchedOption.option_text || matchedOption.option_value || gmAnswerValue);
+        }
+        
+        // Fetch adventures if we have the option ID and convention
+        const gmOptionIdToUse = matchedOption?.id || selectedGMOptionId;
+        const conventionQuestion = survey.questions.find(q => q.question_text === 'What convention are you attending?');
+        const selectedConvention = conventionQuestion && (answers[conventionQuestion.id] || preSelectedConvention);
+        
+        if (gmOptionIdToUse && selectedConvention && conventionQuestion) {
+          // Find convention option ID
+          const conventionOption = conventionQuestion.options?.find((opt: any) => {
+            const optValue = opt.option_value || opt.option_text;
+            const selectedValue = selectedConvention;
+            const optValueStr = optValue != null ? String(optValue).toLowerCase() : '';
+            const optTextStr = opt.option_text != null ? String(opt.option_text).toLowerCase() : '';
+            const selectedValueStr = selectedValue != null ? String(selectedValue).toLowerCase() : '';
+            return optValueStr === selectedValueStr || optTextStr === selectedValueStr;
+          });
+          
+          if (conventionOption) {
+            console.log('Fetching adventures for GM option ID:', gmOptionIdToUse, 'and Convention option ID:', conventionOption.id);
+            fetch(`/api/survey/adventures-by-gm?gm_option_id=${gmOptionIdToUse}&convention_option_id=${conventionOption.id}`)
+              .then(res => {
+                if (!res.ok) {
+                  throw new Error(`HTTP error! status: ${res.status}`);
+                }
+                return res.json();
+              })
+              .then(data => {
+                console.log('Adventures fetched:', data);
+                if (data.adventures && Array.isArray(data.adventures)) {
+                  setFilteredAdventures(data.adventures);
+                } else {
+                  console.warn('No adventures in response:', data);
+                  setFilteredAdventures([]);
+                }
+              })
+              .catch(err => {
+                console.error('Error fetching adventures by GM and Convention:', err);
+                setFilteredAdventures([]);
+              });
+          } else {
+            // Try by convention value
+            console.log('Fetching adventures by GM option ID and convention value:', gmOptionIdToUse, selectedConvention);
+            fetch(`/api/survey/adventures-by-gm?gm_option_id=${gmOptionIdToUse}&convention_value=${encodeURIComponent(selectedConvention)}`)
+              .then(res => {
+                if (!res.ok) {
+                  throw new Error(`HTTP error! status: ${res.status}`);
+                }
+                return res.json();
+              })
+              .then(data => {
+                console.log('Adventures fetched:', data);
+                if (data.adventures && Array.isArray(data.adventures)) {
+                  setFilteredAdventures(data.adventures);
+                } else {
+                  setFilteredAdventures([]);
+                }
+              })
+              .catch(err => {
+                console.error('Error fetching adventures by GM and Convention:', err);
+                setFilteredAdventures([]);
+              });
+          }
+        } else if (!gmOptionIdToUse && !selectedGMOptionId && gmAnswerValue && selectedConvention) {
+          // Try fetching by GM name/value and convention as fallback
+          console.log('Fetching adventures by GM name/value and convention:', gmAnswerValue, selectedConvention);
+          fetch(`/api/survey/adventures-by-gm?gm_name=${encodeURIComponent(gmAnswerValue)}&convention_value=${encodeURIComponent(selectedConvention)}`)
+            .then(res => {
+              if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+              }
+              return res.json();
+            })
+            .then(data => {
+              console.log('Adventures fetched by name:', data);
+              if (data.adventures && Array.isArray(data.adventures)) {
+                setFilteredAdventures(data.adventures);
+              } else {
+                setFilteredAdventures([]);
+              }
+            })
+            .catch(err => {
+              console.error('Error fetching adventures by GM name and Convention:', err);
+              setFilteredAdventures([]);
+            });
+        }
+      } else if (!answers[gmQuestion?.id || -1] && selectedGMOptionId) {
+        // GM answer was cleared, clear adventures
+        setFilteredAdventures([]);
+      }
+    }
+  }, [survey, answers, selectedGMOptionId, filteredGMs]);
+
   const handleAnswer = (questionId: number, value: any) => {
+    // Handle GM selection - find GM question and check if this is it
+    const gmQuestion = survey?.questions.find(q => 
+      q.id === questionId &&
+      (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master'))
+    );
+
+    if (gmQuestion) {
+      console.log('GM selected, value:', value);
+      console.log('filteredGMs:', filteredGMs);
+      console.log('gmQuestion.options:', gmQuestion.options);
+      
+      // Find the selected GM option to get its ID
+      // First check filteredGMs (if convention filtering is active)
+      let selectedOption = filteredGMs.length > 0 
+        ? filteredGMs.find((gm: any) => {
+            const gmValue = gm.option_value || gm.option_text;
+            return gmValue === value || String(gmValue) === String(value);
+          })
+        : null;
+      
+      // If not found in filteredGMs, check the original question options
+      if (!selectedOption && gmQuestion.options) {
+        selectedOption = gmQuestion.options.find((opt: any) => {
+          const optValue = opt.option_value || opt.option_text;
+          return optValue === value || String(optValue) === String(value);
+        });
+      }
+      
+      if (selectedOption) {
+        console.log('Found GM option:', selectedOption);
+        setSelectedGMOptionId(selectedOption.id);
+        setSelectedGMName(selectedOption.option_text || selectedOption.option_value || value);
+      } else {
+        // Fallback: try to find by value match (case-insensitive)
+        const valueStr = value != null ? String(value) : '';
+        const fallbackOption = (filteredGMs.length > 0 ? filteredGMs : gmQuestion.options || []).find((gm: any) => {
+          const gmValue = gm.option_value || gm.option_text;
+          return gmValue != null && String(gmValue).toLowerCase() === valueStr.toLowerCase();
+        });
+        
+        if (fallbackOption) {
+          console.log('Found GM option via fallback:', fallbackOption);
+          setSelectedGMOptionId(fallbackOption.id);
+          setSelectedGMName(fallbackOption.option_text || fallbackOption.option_value || value);
+        } else {
+          console.warn('Could not find GM option for value:', value, 'Available options:', filteredGMs.length > 0 ? filteredGMs : gmQuestion.options);
+          setSelectedGMOptionId(null);
+          setSelectedGMName(value);
+        }
+      }
+      
+      // Clear adventure answer when GM changes
+      const adventureQuestion = survey?.questions.find(q => q.question_text === 'What adventure did you play?');
+      if (adventureQuestion) {
+        setAnswers(prev => {
+          const newAnswers = { ...prev };
+          delete newAnswers[adventureQuestion.id];
+          return newAnswers;
+        });
+      }
+      
+      // Still save the GM answer normally, then return
+      setAnswers(prev => ({
+        ...prev,
+        [questionId]: value
+      }));
+      return;
+    }
+    
+    // Normal answer handling for non-GM questions
     setAnswers(prev => {
       const newAnswers = {
         ...prev,
@@ -1033,11 +1396,64 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
             style={{ padding: '1rem', fontSize: '1rem' }}
           >
             <option value="">Select an option...</option>
-            {question.options.map((option) => (
-              <option key={option.id} value={option.option_value || option.option_text}>
-                {option.option_text}
-              </option>
-            ))}
+            {(() => {
+              // Filter adventures by GM - ONLY show adventures if GM is selected
+              if (question.question_text === 'What adventure did you play?') {
+                // Check if GM was answered (even if selectedGMOptionId isn't set yet)
+                const gmQuestion = survey?.questions.find(q => 
+                  (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+                  ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+                );
+                const gmAnswered = gmQuestion && answers[gmQuestion.id];
+                const hasGMOptionId = selectedGMOptionId != null;
+                
+                if ((hasGMOptionId || gmAnswered) && filteredAdventures.length > 0) {
+                  // Show only adventures associated with the selected GM
+                  return filteredAdventures.map((adventure: any) => (
+                    <option key={adventure.id} value={adventure.option_value || adventure.option_text}>
+                      {adventure.option_text}
+                    </option>
+                  ));
+                } else if ((hasGMOptionId || gmAnswered) && filteredAdventures.length === 0) {
+                  // GM selected but no adventures associated (or still loading)
+                  return (
+                    <option value="" disabled>
+                      {hasGMOptionId ? 'No adventures available for this GM' : 'Loading adventures...'}
+                    </option>
+                  );
+                } else {
+                  // No GM selected - don't show any adventures
+                  return (
+                    <option value="" disabled>
+                      Please select a GM first
+                    </option>
+                  );
+                }
+              }
+              
+              // Filter GMs by convention
+              const isGMQuestion = (question.question_text.toLowerCase().includes('gm') || question.question_text.toLowerCase().includes('game master'));
+              if (isGMQuestion) {
+                // If convention filtering is active, use filteredGMs, otherwise use all GM options
+                const gmsToShow = filteredGMs.length > 0 ? filteredGMs : question.options || [];
+                return gmsToShow.map((gm: any) => {
+                  const gmValue = gm.option_value || gm.option_text;
+                  const gmId = gm.id;
+                  return (
+                    <option key={gmId} value={gmValue}>
+                      {gm.option_text}
+                    </option>
+                  );
+                });
+              }
+              
+              // Default: show all options
+              return question.options.map((option) => (
+                <option key={option.id} value={option.option_value || option.option_text}>
+                  {option.option_text}
+                </option>
+              ));
+            })()}
           </select>
         )}
 
