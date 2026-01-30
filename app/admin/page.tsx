@@ -42,7 +42,11 @@ interface Response {
 }
 
 export default function AdminPanel() {
+<<<<<<< HEAD
   const [activeTab, setActiveTab] = useState<'dropdowns' | 'responses' | 'gm-interest' | 'graphs' | 'settings' | 'gm-adventures'>('dropdowns');
+=======
+  const [activeTab, setActiveTab] = useState<'dropdowns' | 'responses' | 'gm-interest' | 'gm-assignments' | 'graphs' | 'settings' | 'coupon-codes'>('dropdowns');
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
   const [ratingData, setRatingData] = useState<any>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [responses, setResponses] = useState<Response[]>([]);
@@ -50,8 +54,19 @@ export default function AdminPanel() {
   const [editingOption, setEditingOption] = useState<{ questionId: number; optionId: number; text: string } | null>(null);
   const [groupBy, setGroupBy] = useState<'convention' | 'game' | 'none'>('none');
   const [graphConventionFilter, setGraphConventionFilter] = useState<string>('all');
+<<<<<<< HEAD
   const [conventions, setConventions] = useState<Array<{ value: string; display: string }>>([]);
   const [gmInterestData, setGmInterestData] = useState<any[]>([]);
+=======
+  const [conventions, setConventions] = useState<string[]>([]);
+  const [gmInterestData, setGmInterestData] = useState<any[]>([]);
+  const [gmConventions, setGmConventions] = useState<any[]>([]);
+  const [gmAdventures, setGmAdventures] = useState<any[]>([]);
+  const [adventures, setAdventures] = useState<string[]>([]);
+  const [newAssociationGM, setNewAssociationGM] = useState<string>('');
+  const [newAssociationConventions, setNewAssociationConventions] = useState<string[]>([]);
+  const [newAssociationAdventures, setNewAssociationAdventures] = useState<string[]>([]);
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<any>(null);
   const [removingGMAnswers, setRemovingGMAnswers] = useState(false);
@@ -59,9 +74,17 @@ export default function AdminPanel() {
   const [showQrCode, setShowQrCode] = useState(false);
   const [qrCodeLink, setQrCodeLink] = useState<string>('');
   const [qrCodeConvention, setQrCodeConvention] = useState<string>('');
+<<<<<<< HEAD
   const qrCodeRef = useRef<HTMLDivElement>(null);
   const [gmAdventures, setGmAdventures] = useState<any>(null);
   const [selectedGMOptionId, setSelectedGMOptionId] = useState<number | null>(null);
+=======
+  const [couponCodes, setCouponCodes] = useState<any[]>([]);
+  const [couponCodeFilter, setCouponCodeFilter] = useState<'all' | 'available' | 'used' | 'expired'>('all');
+  const [bulkUploadText, setBulkUploadText] = useState<string>('');
+  const [uploadingCodes, setUploadingCodes] = useState<boolean>(false);
+  const qrCodeRef = useRef<HTMLDivElement>(null);
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
 
   useEffect(() => {
     const loadData = async () => {
@@ -84,7 +107,14 @@ export default function AdminPanel() {
         fetchWithTimeout(fetchResponses, 15000),
         fetchWithTimeout(fetchRatingData, 10000),
         fetchWithTimeout(fetchConventions, 5000),
+<<<<<<< HEAD
         fetchWithTimeout(fetchGmInterest, 10000)
+=======
+        fetchWithTimeout(fetchAdventures, 5000),
+        fetchWithTimeout(fetchGmInterest, 10000),
+        fetchWithTimeout(fetchGmConventions, 10000),
+        fetchWithTimeout(fetchGmAdventures, 10000)
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
       ]);
       
       setLoading(false);
@@ -97,6 +127,7 @@ export default function AdminPanel() {
     if (activeTab === 'graphs' && conventions.length === 0) {
       fetchConventions();
     }
+<<<<<<< HEAD
     if (activeTab === 'gm-adventures') {
       fetchGmAdventures();
     }
@@ -117,11 +148,52 @@ export default function AdminPanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions, activeTab]);
 
+=======
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
   useEffect(() => {
     fetchRatingData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphConventionFilter]);
 
+<<<<<<< HEAD
+=======
+  // Fetch coupon codes when filter changes
+  useEffect(() => {
+    if (activeTab === 'coupon-codes') {
+      fetchCouponCodes();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [couponCodeFilter, activeTab]);
+
+  // Pre-populate existing associations when GM is selected
+  useEffect(() => {
+    if (newAssociationGM) {
+      const gmId = parseInt(newAssociationGM);
+      // Get existing conventions for this GM
+      const existingConventions = gmConventions
+        .filter((assoc: any) => assoc.gm_interest_id === gmId)
+        .map((assoc: any) => assoc.convention);
+      // Get existing adventures for this GM
+      const existingAdventures = gmAdventures
+        .filter((assoc: any) => assoc.gm_interest_id === gmId)
+        .map((assoc: any) => assoc.adventure);
+      
+      // Always sync with existing associations when GM or data changes
+      // This ensures checkboxes reflect the current state in the database
+      setNewAssociationConventions(existingConventions);
+      setNewAssociationAdventures(existingAdventures);
+    } else {
+      // Reset selections when no GM is selected
+      setNewAssociationConventions([]);
+      setNewAssociationAdventures([]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newAssociationGM, gmConventions, gmAdventures]);
+
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
   const fetchConventions = async () => {
     try {
       const controller = new AbortController();
@@ -135,6 +207,7 @@ export default function AdminPanel() {
       
       if (res.ok) {
         const data = await res.json();
+<<<<<<< HEAD
         // Handle both old format (strings) and new format (objects)
         const formattedConventions = Array.isArray(data) 
           ? data.map((conv: any) => 
@@ -144,6 +217,9 @@ export default function AdminPanel() {
             )
           : [];
         setConventions(formattedConventions);
+=======
+        setConventions(Array.isArray(data) ? data : []);
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
       } else {
         const errorText = await res.text();
         console.error('Failed to fetch conventions:', res.status, errorText);
@@ -179,6 +255,33 @@ export default function AdminPanel() {
     }
   };
 
+<<<<<<< HEAD
+=======
+  const fetchGmConventions = async () => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const res = await fetch('/api/admin/gm-conventions', {
+        signal: controller.signal,
+        cache: 'no-store'
+      });
+      clearTimeout(timeoutId);
+      
+      if (res.ok) {
+        const data = await res.json();
+        setGmConventions(Array.isArray(data) ? data : []);
+      } else {
+        console.error('Failed to fetch GM-convention associations:', res.status);
+        setGmConventions([]);
+      }
+    } catch (error: any) {
+      console.error('Error fetching GM-convention associations:', error);
+      setGmConventions([]);
+    }
+  };
+
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
   const fetchGmAdventures = async () => {
     try {
       const controller = new AbortController();
@@ -192,6 +295,7 @@ export default function AdminPanel() {
       
       if (res.ok) {
         const data = await res.json();
+<<<<<<< HEAD
         // Ensure adventuresByConvention exists for all GMs
         if (data.gms && Array.isArray(data.gms)) {
           data.gms = data.gms.map((gm: any) => ({
@@ -295,6 +399,70 @@ export default function AdminPanel() {
     } catch (error) {
       console.error('Error removing association:', error);
       alert('Failed to remove association');
+=======
+        setGmAdventures(Array.isArray(data) ? data : []);
+      } else {
+        console.error('Failed to fetch GM-adventure associations:', res.status);
+        setGmAdventures([]);
+      }
+    } catch (error: any) {
+      console.error('Error fetching GM-adventure associations:', error);
+      setGmAdventures([]);
+    }
+  };
+
+  const fetchCouponCodes = async () => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const status = couponCodeFilter === 'all' ? '' : couponCodeFilter;
+      const url = status 
+        ? `/api/admin/coupon-codes?status=${status}`
+        : '/api/admin/coupon-codes';
+      
+      const res = await fetch(url, {
+        signal: controller.signal,
+        cache: 'no-store'
+      });
+      clearTimeout(timeoutId);
+      
+      if (res.ok) {
+        const data = await res.json();
+        setCouponCodes(Array.isArray(data) ? data : []);
+      } else {
+        console.error('Failed to fetch coupon codes:', res.status);
+        setCouponCodes([]);
+      }
+    } catch (error: any) {
+      console.error('Error fetching coupon codes:', error);
+      setCouponCodes([]);
+    }
+  };
+
+  const fetchAdventures = async () => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const res = await fetch('/api/admin/adventures', {
+        signal: controller.signal,
+        cache: 'no-store'
+      });
+      clearTimeout(timeoutId);
+      
+      if (res.ok) {
+        const data = await res.json();
+        setAdventures(Array.isArray(data) ? data : []);
+      } else {
+        const errorText = await res.text();
+        console.error('Failed to fetch adventures:', res.status, errorText);
+        setAdventures([]);
+      }
+    } catch (error: any) {
+      console.error('Error fetching adventures:', error);
+      setAdventures([]);
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     }
   };
 
@@ -352,11 +520,14 @@ export default function AdminPanel() {
       
       const data = await res.json();
       setQuestions(Array.isArray(data) ? data : []);
+<<<<<<< HEAD
       
       // If GM Associations tab is active, refresh GM data to reflect any changes
       if (activeTab === 'gm-adventures') {
         fetchGmAdventures();
       }
+=======
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     } catch (error: any) {
       console.error('Error fetching questions:', error);
       setQuestions([]);
@@ -593,6 +764,153 @@ export default function AdminPanel() {
     }
   };
 
+<<<<<<< HEAD
+=======
+  const handleAddGMConvention = async () => {
+    if (!newAssociationGM || newAssociationConventions.length === 0) {
+      alert('Please select a GM and at least one convention');
+      return;
+    }
+
+    try {
+      // Add all selected conventions
+      const promises = newAssociationConventions.map(convention =>
+        fetch('/api/admin/gm-conventions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gm_interest_id: parseInt(newAssociationGM),
+            convention: convention
+          })
+        })
+      );
+
+      const results = await Promise.allSettled(promises);
+      
+      let successCount = 0;
+      let errorCount = 0;
+      
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value.ok) {
+          successCount++;
+        } else {
+          errorCount++;
+        }
+      });
+
+      if (successCount > 0) {
+        setNewAssociationGM('');
+        setNewAssociationConventions([]);
+        fetchGmConventions();
+        
+        if (errorCount > 0) {
+          alert(`Successfully added ${successCount} association(s). ${errorCount} association(s) may have already existed.`);
+        } else {
+          alert(`Successfully added ${successCount} association(s).`);
+        }
+      } else {
+        alert('Failed to add associations. They may already exist.');
+      }
+    } catch (error) {
+      console.error('Error adding GM-convention associations:', error);
+      alert('Failed to add associations');
+    }
+  };
+
+  const handleRemoveGMConvention = async (id: number) => {
+    if (!confirm('Are you sure you want to remove this association?')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/gm-conventions?id=${id}`, {
+        method: 'DELETE'
+      });
+
+      if (res.ok) {
+        fetchGmConventions();
+      } else {
+        alert('Failed to remove association');
+      }
+    } catch (error) {
+      console.error('Error removing GM-convention association:', error);
+      alert('Failed to remove association');
+    }
+  };
+
+  const handleAddGMAdventure = async () => {
+    if (!newAssociationGM || newAssociationAdventures.length === 0) {
+      alert('Please select a GM and at least one adventure');
+      return;
+    }
+
+    try {
+      // Add all selected adventures
+      const promises = newAssociationAdventures.map(adventure =>
+        fetch('/api/admin/gm-adventures', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gm_interest_id: parseInt(newAssociationGM),
+            adventure: adventure
+          })
+        })
+      );
+
+      const results = await Promise.allSettled(promises);
+      
+      let successCount = 0;
+      let errorCount = 0;
+      
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value.ok) {
+          successCount++;
+        } else {
+          errorCount++;
+        }
+      });
+
+      if (successCount > 0) {
+        setNewAssociationGM('');
+        setNewAssociationAdventures([]);
+        fetchGmAdventures();
+        
+        if (errorCount > 0) {
+          alert(`Successfully added ${successCount} association(s). ${errorCount} association(s) may have already existed.`);
+        } else {
+          alert(`Successfully added ${successCount} association(s).`);
+        }
+      } else {
+        alert('Failed to add associations. They may already exist.');
+      }
+    } catch (error) {
+      console.error('Error adding GM-adventure associations:', error);
+      alert('Failed to add associations');
+    }
+  };
+
+  const handleRemoveGMAdventure = async (id: number) => {
+    if (!confirm('Are you sure you want to remove this association?')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/gm-adventures?id=${id}`, {
+        method: 'DELETE'
+      });
+
+      if (res.ok) {
+        fetchGmAdventures();
+      } else {
+        alert('Failed to remove association');
+      }
+    } catch (error) {
+      console.error('Error removing GM-adventure association:', error);
+      alert('Failed to remove association');
+    }
+  };
+
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
   const handleClearDatabase = async () => {
     if (!confirm('WARNING: This will delete ALL responses and answers. This cannot be undone. Are you absolutely sure?')) return;
     if (!confirm('Are you REALLY sure? This will permanently delete all data.')) return;
@@ -624,6 +942,14 @@ export default function AdminPanel() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5', padding: '2rem' }}>
+<<<<<<< HEAD
+=======
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}} />
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
       <div style={{ maxWidth: '1200px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
         <h1 style={{ padding: '2rem', borderBottom: '2px solid #e0e0e0', margin: 0, fontSize: '2rem' }}>
           Admin Panel
@@ -643,22 +969,44 @@ export default function AdminPanel() {
               fontWeight: 600
             }}
           >
+<<<<<<< HEAD
             Dropdown Options
           </button>
           <button
             onClick={() => setActiveTab('gm-adventures')}
+=======
+            Setup
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('gm-assignments');
+              fetchGmConventions();
+              fetchGmAdventures();
+              fetchConventions(); // Ensure conventions are loaded when tab is opened
+              fetchAdventures(); // Ensure adventures are loaded when tab is opened
+            }}
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
             style={{
               flex: 1,
               padding: '1rem',
               border: 'none',
+<<<<<<< HEAD
               background: activeTab === 'gm-adventures' ? '#667eea' : 'transparent',
               color: activeTab === 'gm-adventures' ? 'white' : '#333',
+=======
+              background: activeTab === 'gm-assignments' ? '#667eea' : 'transparent',
+              color: activeTab === 'gm-assignments' ? 'white' : '#333',
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
               cursor: 'pointer',
               fontSize: '1rem',
               fontWeight: 600
             }}
           >
+<<<<<<< HEAD
             GM Associations
+=======
+            GM Assignments
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
           </button>
           <button
             onClick={() => setActiveTab('graphs')}
@@ -703,10 +1051,39 @@ export default function AdminPanel() {
               fontWeight: 600
             }}
           >
+<<<<<<< HEAD
             GM Interest Form
           </button>
           <button
             onClick={() => setActiveTab('settings')}
+=======
+            GM Interest Forms
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('coupon-codes');
+              fetchCouponCodes();
+            }}
+            style={{
+              flex: 1,
+              padding: '1rem',
+              border: 'none',
+              background: activeTab === 'coupon-codes' ? '#667eea' : 'transparent',
+              color: activeTab === 'coupon-codes' ? 'white' : '#333',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              fontWeight: 600
+            }}
+          >
+            Coupon Codes
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('settings');
+              fetchConventions(); // Ensure conventions are loaded when tab is opened
+              fetchQuestions(); // Ensure questions are loaded to get convention options
+            }}
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
             style={{
               flex: 1,
               padding: '1rem',
@@ -725,7 +1102,11 @@ export default function AdminPanel() {
         <div style={{ padding: '2rem' }}>
           {activeTab === 'dropdowns' && (
             <div>
+<<<<<<< HEAD
               <h2 style={{ marginBottom: '1.5rem' }}>Manage Dropdown Options</h2>
+=======
+              <h2 style={{ marginBottom: '1.5rem' }}>Setup</h2>
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
               {dropdownQuestions.map(question => (
                 <div key={question.id} style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px' }}>
                   <h3 style={{ marginBottom: '1rem', color: '#333' }}>{question.question_text}</h3>
@@ -951,6 +1332,607 @@ export default function AdminPanel() {
                   </tbody>
                 </table>
               </div>
+<<<<<<< HEAD
+=======
+              </div>
+          )}
+
+          {activeTab === 'gm-assignments' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <h2 style={{ margin: 0 }}>GM Assignments</h2>
+              </div>
+
+              {/* Combined assignment form */}
+              <div style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+                <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>Assign GM to Conventions & Adventures</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.95rem' }}>
+                      Select GM:
+                    </label>
+                    <select
+                      value={newAssociationGM}
+                      onChange={(e) => {
+                        const selectedGMId = e.target.value;
+                        setNewAssociationGM(selectedGMId);
+                        // The useEffect below will handle pre-populating existing associations
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem',
+                        border: '1px solid #ccc',
+                        borderRadius: '4px',
+                        fontSize: '0.95rem'
+                      }}
+                    >
+                      <option value="">Select a GM...</option>
+                      {gmInterestData
+                        .sort((a, b) => {
+                          const aName = `${a.last_name || ''} ${a.first_name || ''}`.trim();
+                          const bName = `${b.last_name || ''} ${b.first_name || ''}`.trim();
+                          return aName.localeCompare(bName);
+                        })
+                        .map((gm: any) => (
+                          <option key={gm.id} value={gm.id}>
+                            {gm.last_name || ''} {gm.first_name || ''} ({gm.email || 'No email'})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem' }}>
+                    {/* Conventions Selection */}
+                    <div style={{ flex: 1, minWidth: '300px' }}>
+                      <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.95rem' }}>
+                        Select Convention(s): {newAssociationConventions.length > 0 && `(${newAssociationConventions.length} selected)`}
+                      </label>
+                      <div style={{
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        border: '1px solid #ccc',
+                        borderRadius: '4px',
+                        padding: '0.5rem',
+                        background: 'white'
+                      }}>
+                        {(() => {
+                          // Get conventions from the convention question options (same as Setup tab)
+                          const conventionQuestion = questions && Array.isArray(questions)
+                            ? questions.find(q => q.question_text === 'What convention are you attending?')
+                            : null;
+                          const conventionOptions = conventionQuestion?.options || [];
+                          
+                          // Use question options if available, otherwise fall back to conventions state
+                          const availableConventions = conventionOptions.length > 0
+                            ? conventionOptions.map((opt: any) => opt.option_text || opt.option_value).filter(Boolean)
+                            : (conventions && Array.isArray(conventions) ? conventions : []);
+                          
+                          const sortedConventions = availableConventions
+                            .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+                          
+                          return sortedConventions.map((conv: string) => (
+                            <label
+                              key={conv}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                padding: '0.5rem',
+                                cursor: 'pointer',
+                                borderRadius: '4px',
+                                marginBottom: '0.25rem',
+                                background: newAssociationConventions.includes(conv) ? '#e8f4f8' : 'transparent'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!newAssociationConventions.includes(conv)) {
+                                  e.currentTarget.style.background = '#f5f5f5';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!newAssociationConventions.includes(conv)) {
+                                  e.currentTarget.style.background = 'transparent';
+                                }
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={newAssociationConventions.includes(conv)}
+                                onChange={async (e) => {
+                                  if (e.target.checked) {
+                                    setNewAssociationConventions([...newAssociationConventions, conv]);
+                                  } else {
+                                    // If unchecking, remove from state immediately
+                                    setNewAssociationConventions(newAssociationConventions.filter(c => c !== conv));
+                                    
+                                    // If this was an existing association, remove it from database
+                                    if (newAssociationGM) {
+                                      const gmId = parseInt(newAssociationGM);
+                                      const existingAssociation = gmConventions && Array.isArray(gmConventions)
+                                        ? gmConventions.find(
+                                            (assoc: any) => assoc.gm_interest_id === gmId && assoc.convention === conv
+                                          )
+                                        : null;
+                                      
+                                      if (existingAssociation) {
+                                        try {
+                                          const res = await fetch(`/api/admin/gm-conventions?id=${existingAssociation.id}`, {
+                                            method: 'DELETE'
+                                          });
+                                          
+                                          if (res.ok) {
+                                            // Refresh the associations list
+                                            fetchGmConventions();
+                                          } else {
+                                            // If removal failed, restore the checkbox
+                                            setNewAssociationConventions([...newAssociationConventions, conv]);
+                                            console.error('Failed to remove convention association');
+                                          }
+                                        } catch (error) {
+                                          console.error('Error removing convention association:', error);
+                                          // Restore the checkbox on error
+                                          setNewAssociationConventions([...newAssociationConventions, conv]);
+                                        }
+                                      }
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  marginRight: '0.5rem',
+                                  cursor: 'pointer'
+                                }}
+                              />
+                              <span style={{ fontSize: '0.95rem' }}>{conv}</span>
+                            </label>
+                          ));
+                        })()}
+                        {(() => {
+                          const conventionQuestion = questions.find(q => 
+                            q.question_text === 'What convention are you attending?'
+                          );
+                          const conventionOptions = conventionQuestion?.options || [];
+                          const availableConventions = conventionOptions.length > 0
+                            ? conventionOptions.map((opt: any) => opt.option_text || opt.option_value).filter(Boolean)
+                            : conventions;
+                          
+                          if (availableConventions.length === 0) {
+                            return (
+                              <div style={{ padding: '0.5rem', color: '#666', fontSize: '0.9rem' }}>
+                                No conventions available. Add them in the Setup tab first.
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Adventures Selection */}
+                    <div style={{ flex: 1, minWidth: '300px' }}>
+                      <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.95rem' }}>
+                        Select Adventure(s): {newAssociationAdventures.length > 0 && `(${newAssociationAdventures.length} selected)`}
+                      </label>
+                      <div style={{
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        border: '1px solid #ccc',
+                        borderRadius: '4px',
+                        padding: '0.5rem',
+                        background: 'white'
+                      }}>
+                        {(() => {
+                          // Get adventures from the adventure question options
+                          const adventureQuestion = questions && Array.isArray(questions)
+                            ? questions.find(q => q.question_text === 'What adventure did you play?')
+                            : null;
+                          const adventureOptions = adventureQuestion?.options || [];
+                          
+                          // Use question options if available, otherwise fall back to adventures state
+                          const availableAdventures = adventureOptions.length > 0
+                            ? adventureOptions.map((opt: any) => opt.option_text || opt.option_value).filter(Boolean)
+                            : (adventures && Array.isArray(adventures) ? adventures : []);
+                          
+                          const sortedAdventures = availableAdventures
+                            .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+                          
+                          return sortedAdventures.map((adv: string) => (
+                            <label
+                              key={adv}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                padding: '0.5rem',
+                                cursor: 'pointer',
+                                borderRadius: '4px',
+                                marginBottom: '0.25rem',
+                                background: newAssociationAdventures.includes(adv) ? '#e8f4f8' : 'transparent'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!newAssociationAdventures.includes(adv)) {
+                                  e.currentTarget.style.background = '#f5f5f5';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!newAssociationAdventures.includes(adv)) {
+                                  e.currentTarget.style.background = 'transparent';
+                                }
+                              }}
+                            >
+                            <input
+                              type="checkbox"
+                              checked={newAssociationAdventures.includes(adv)}
+                              onChange={async (e) => {
+                                if (e.target.checked) {
+                                  setNewAssociationAdventures([...newAssociationAdventures, adv]);
+                                } else {
+                                  // If unchecking, remove from state immediately
+                                  setNewAssociationAdventures(newAssociationAdventures.filter(a => a !== adv));
+                                  
+                                  // If this was an existing association, remove it from database
+                                  if (newAssociationGM) {
+                                    const gmId = parseInt(newAssociationGM);
+                                    const existingAssociation = gmAdventures && Array.isArray(gmAdventures)
+                                      ? gmAdventures.find(
+                                          (assoc: any) => assoc.gm_interest_id === gmId && assoc.adventure === adv
+                                        )
+                                      : null;
+                                    
+                                    if (existingAssociation) {
+                                      try {
+                                        const res = await fetch(`/api/admin/gm-adventures?id=${existingAssociation.id}`, {
+                                          method: 'DELETE'
+                                        });
+                                        
+                                        if (res.ok) {
+                                          // Refresh the associations list
+                                          fetchGmAdventures();
+                                        } else {
+                                          // If removal failed, restore the checkbox
+                                          setNewAssociationAdventures([...newAssociationAdventures, adv]);
+                                          console.error('Failed to remove adventure association');
+                                        }
+                                      } catch (error) {
+                                        console.error('Error removing adventure association:', error);
+                                        // Restore the checkbox on error
+                                        setNewAssociationAdventures([...newAssociationAdventures, adv]);
+                                      }
+                                    }
+                                  }
+                                }
+                              }}
+                              style={{
+                                marginRight: '0.5rem',
+                                cursor: 'pointer'
+                              }}
+                            />
+                              <span style={{ fontSize: '0.95rem' }}>{adv}</span>
+                            </label>
+                          ));
+                        })()}
+                        {(() => {
+                          const adventureQuestion = questions.find(q => 
+                            q.question_text === 'What adventure did you play?'
+                          );
+                          const adventureOptions = adventureQuestion?.options || [];
+                          const availableAdventures = adventureOptions.length > 0
+                            ? adventureOptions.map((opt: any) => opt.option_text || opt.option_value).filter(Boolean)
+                            : adventures;
+                          
+                          if (availableAdventures.length === 0) {
+                            return (
+                              <div style={{ padding: '0.5rem', color: '#666', fontSize: '0.9rem' }}>
+                                No adventures available. Add them in the Setup tab first.
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={async () => {
+                      if (!newAssociationGM) {
+                        alert('Please select a GM');
+                        return;
+                      }
+                      if (newAssociationConventions.length === 0 && newAssociationAdventures.length === 0) {
+                        alert('Please select at least one convention or adventure');
+                        return;
+                      }
+
+                      const gmId = parseInt(newAssociationGM);
+                      
+                      // Get existing associations to avoid duplicates
+                      const existingConventions = gmConventions
+                        .filter((assoc: any) => assoc.gm_interest_id === gmId)
+                        .map((assoc: any) => assoc.convention);
+                      const existingAdventures = gmAdventures
+                        .filter((assoc: any) => assoc.gm_interest_id === gmId)
+                        .map((assoc: any) => assoc.adventure);
+                      
+                      // Filter out associations that already exist - only add new ones
+                      const newConventions = newAssociationConventions.filter(
+                        conv => !existingConventions.includes(conv)
+                      );
+                      const newAdventures = newAssociationAdventures.filter(
+                        adv => !existingAdventures.includes(adv)
+                      );
+                      
+                      // Create all new associations in parallel
+                      const promises = [];
+                      
+                      // Add only new convention associations
+                      for (const convention of newConventions) {
+                        promises.push(
+                          fetch('/api/admin/gm-conventions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              gm_interest_id: gmId,
+                              convention: convention
+                            })
+                          })
+                        );
+                      }
+                      
+                      // Add only new adventure associations
+                      for (const adventure of newAdventures) {
+                        promises.push(
+                          fetch('/api/admin/gm-adventures', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              gm_interest_id: gmId,
+                              adventure: adventure
+                            })
+                          })
+                        );
+                      }
+
+                      const results = await Promise.allSettled(promises);
+                      
+                      let conventionSuccessCount = 0;
+                      let adventureSuccessCount = 0;
+                      let conventionErrorCount = 0;
+                      let adventureErrorCount = 0;
+                      
+                      results.forEach((result, index) => {
+                        if (index < newConventions.length) {
+                          // Convention result
+                          if (result.status === 'fulfilled' && result.value.ok) {
+                            conventionSuccessCount++;
+                          } else {
+                            conventionErrorCount++;
+                          }
+                        } else {
+                          // Adventure result
+                          if (result.status === 'fulfilled' && result.value.ok) {
+                            adventureSuccessCount++;
+                          } else {
+                            adventureErrorCount++;
+                          }
+                        }
+                      });
+
+                      // Clear form
+                      setNewAssociationGM('');
+                      setNewAssociationConventions([]);
+                      setNewAssociationAdventures([]);
+                      
+                      // Refresh data
+                      fetchGmConventions();
+                      fetchGmAdventures();
+                    }}
+                    style={{
+                      padding: '0.75rem 1.5rem',
+                      background: '#667eea',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      fontSize: '0.95rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      alignSelf: 'flex-start'
+                    }}
+                  >
+                    Save Assignments
+                  </button>
+                </div>
+              </div>
+
+              {/* Combined view showing all assignments grouped by GM */}
+              <div>
+                <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>Current Assignments</h3>
+                <div style={{ overflowX: 'auto' }}>
+                {(() => {
+                  // Combine and group all associations by GM
+                  const allGMs = new Map();
+                  
+                  // Add convention associations
+                  gmConventions.forEach((assoc: any) => {
+                    const gmKey = assoc.gm_interest_id;
+                    if (!allGMs.has(gmKey)) {
+                      allGMs.set(gmKey, {
+                        gm_id: gmKey,
+                        first_name: assoc.first_name,
+                        last_name: assoc.last_name,
+                        email: assoc.email,
+                        conventions: [],
+                        adventures: []
+                      });
+                    }
+                    allGMs.get(gmKey).conventions.push({
+                      id: assoc.id,
+                      convention: assoc.convention,
+                      created_at: assoc.created_at
+                    });
+                  });
+                  
+                  // Add adventure associations
+                  gmAdventures.forEach((assoc: any) => {
+                    const gmKey = assoc.gm_interest_id;
+                    if (!allGMs.has(gmKey)) {
+                      allGMs.set(gmKey, {
+                        gm_id: gmKey,
+                        first_name: assoc.first_name,
+                        last_name: assoc.last_name,
+                        email: assoc.email,
+                        conventions: [],
+                        adventures: []
+                      });
+                    }
+                    allGMs.get(gmKey).adventures.push({
+                      id: assoc.id,
+                      adventure: assoc.adventure,
+                      created_at: assoc.created_at
+                    });
+                  });
+                  
+                  const sortedGMs = Array.from(allGMs.values()).sort((a: any, b: any) => {
+                    const aName = `${a.last_name || ''} ${a.first_name || ''}`.trim();
+                    const bName = `${b.last_name || ''} ${b.first_name || ''}`.trim();
+                    return aName.localeCompare(bName);
+                  });
+
+                  if (sortedGMs.length === 0) {
+                    return (
+                      <div style={{ 
+                        padding: '2rem', 
+                        textAlign: 'center', 
+                        color: '#666',
+                        background: 'white',
+                        borderRadius: '8px',
+                        border: '1px solid #e0e0e0'
+                      }}>
+                        No GM assignments yet. Add assignments above to get started.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      {sortedGMs.map((gm: any) => (
+                        <div key={gm.gm_id} style={{ 
+                          background: 'white', 
+                          borderRadius: '8px', 
+                          border: '1px solid #e0e0e0',
+                          overflow: 'hidden'
+                        }}>
+                          <div style={{ 
+                            padding: '1rem', 
+                            background: '#f8f9fa', 
+                            borderBottom: '1px solid #e0e0e0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}>
+                            <div>
+                              <strong style={{ fontSize: '1rem' }}>
+                                {gm.last_name || ''} {gm.first_name || ''}
+                              </strong>
+                              {gm.email && (
+                                <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>
+                                  {gm.email}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.9rem', color: '#666' }}>
+                              {gm.conventions.length} convention{gm.conventions.length !== 1 ? 's' : ''}, {gm.adventures.length} adventure{gm.adventures.length !== 1 ? 's' : ''}
+                            </div>
+                          </div>
+                          <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            {/* Conventions */}
+                            {gm.conventions.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#666', marginBottom: '0.5rem' }}>
+                                  Conventions:
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                  {gm.conventions
+                                    .sort((a: any, b: any) => a.convention.localeCompare(b.convention))
+                                    .map((conv: any) => (
+                                      <div key={conv.id} style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        padding: '0.5rem 0.75rem',
+                                        background: '#e3f2fd',
+                                        borderRadius: '4px',
+                                        border: '1px solid #90caf9'
+                                      }}>
+                                        <span style={{ fontSize: '0.9rem' }}>{conv.convention}</span>
+                                        <button
+                                          onClick={() => handleRemoveGMConvention(conv.id)}
+                                          style={{
+                                            padding: '0.125rem 0.5rem',
+                                            background: '#e74c3c',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '3px',
+                                            fontSize: '0.75rem',
+                                            cursor: 'pointer',
+                                            lineHeight: '1.2'
+                                          }}
+                                          title="Remove this association"
+                                        >
+                                          ×
+                                        </button>
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Adventures */}
+                            {gm.adventures.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#666', marginBottom: '0.5rem' }}>
+                                  Adventures:
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                  {gm.adventures
+                                    .sort((a: any, b: any) => a.adventure.localeCompare(b.adventure))
+                                    .map((adv: any) => (
+                                      <div key={adv.id} style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        padding: '0.5rem 0.75rem',
+                                        background: '#f3e5f5',
+                                        borderRadius: '4px',
+                                        border: '1px solid #ce93d8'
+                                      }}>
+                                        <span style={{ fontSize: '0.9rem' }}>{adv.adventure}</span>
+                                        <button
+                                          onClick={() => handleRemoveGMAdventure(adv.id)}
+                                          style={{
+                                            padding: '0.125rem 0.5rem',
+                                            background: '#e74c3c',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '3px',
+                                            fontSize: '0.75rem',
+                                            cursor: 'pointer',
+                                            lineHeight: '1.2'
+                                          }}
+                                          title="Remove this association"
+                                        >
+                                          ×
+                                        </button>
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+                </div>
+              </div>
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
             </div>
           )}
 
@@ -977,6 +1959,7 @@ export default function AdminPanel() {
                     }}
                   >
                     <option value="all">All Conventions</option>
+<<<<<<< HEAD
                     {(() => {
                       // Get conventions from the convention question options (same as Dropdown Options tab)
                       const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
@@ -989,6 +1972,17 @@ export default function AdminPanel() {
                       }
                       return <option disabled>Loading conventions...</option>;
                     })()}
+=======
+                    {conventions.length > 0 ? (
+                      conventions.map(conv => (
+                        <option key={conv} value={conv}>
+                          {conv.charAt(0).toUpperCase() + conv.slice(1).replace(/_/g, ' ')}
+                        </option>
+                      ))
+                    ) : (
+                      <option disabled>Loading conventions...</option>
+                    )}
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
                   </select>
                   {conventions.length === 0 && (
                     <span style={{ fontSize: '0.85rem', color: '#666', marginLeft: '0.5rem' }}>
@@ -1029,6 +2023,7 @@ export default function AdminPanel() {
             </div>
           )}
 
+<<<<<<< HEAD
           {activeTab === 'gm-adventures' && (
             <div>
               <h2 style={{ marginBottom: '1.5rem' }}>GM Associations</h2>
@@ -1277,6 +2272,8 @@ export default function AdminPanel() {
             </div>
           )}
 
+=======
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
           {activeTab === 'settings' && (
             <div>
               <h2 style={{ marginBottom: '1.5rem' }}>Settings</h2>
@@ -1304,6 +2301,7 @@ export default function AdminPanel() {
                     >
                       <option value="">Select a convention...</option>
                       {(() => {
+<<<<<<< HEAD
                         // Get conventions from the convention question options (same as Dropdown Options tab)
                         const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
                         if (conventionQuestion && conventionQuestion.options) {
@@ -1314,6 +2312,26 @@ export default function AdminPanel() {
                           ));
                         }
                         return null;
+=======
+                        // Get conventions from the convention question options (same as Setup and GM Assignments tabs)
+                        const conventionQuestion = questions && Array.isArray(questions) 
+                          ? questions.find(q => q.question_text === 'What convention are you attending?')
+                          : null;
+                        const conventionOptions = conventionQuestion?.options || [];
+                        
+                        // Use question options if available, otherwise fall back to conventions state
+                        const availableConventions = conventionOptions.length > 0
+                          ? conventionOptions.map((opt: any) => opt.option_text || opt.option_value).filter(Boolean)
+                          : (conventions && Array.isArray(conventions) ? conventions : []);
+                        
+                        // Sort alphabetically
+                        const sortedConventions = availableConventions
+                          .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+                        
+                        return sortedConventions.map((conv: string) => (
+                          <option key={conv} value={conv}>{conv}</option>
+                        ));
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
                       })()}
                     </select>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
@@ -1329,10 +2347,13 @@ export default function AdminPanel() {
                           const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
                           const surveyLink = `${baseUrl}/?convention=${encodeURIComponent(selectedConvention)}`;
                           
+<<<<<<< HEAD
                           // Find the display name for the selected convention
                           const selectedConv = conventions.find(c => c.value === selectedConvention);
                           const displayName = selectedConv?.display || selectedConvention;
                           
+=======
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
                           // Copy to clipboard
                           navigator.clipboard.writeText(surveyLink).then(() => {
                             alert(`Survey link copied to clipboard!\n\n${surveyLink}`);
@@ -1366,6 +2387,7 @@ export default function AdminPanel() {
                           const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
                           const surveyLink = `${baseUrl}/?convention=${encodeURIComponent(selectedConvention)}`;
                           
+<<<<<<< HEAD
                           // Find the display name for the selected convention
                           const selectedConv = conventions.find(c => c.value === selectedConvention);
                           const displayName = selectedConv?.display || selectedConvention;
@@ -1373,6 +2395,11 @@ export default function AdminPanel() {
                           // Show QR code modal
                           setQrCodeLink(surveyLink);
                           setQrCodeConvention(displayName);
+=======
+                          // Show QR code modal
+                          setQrCodeLink(surveyLink);
+                          setQrCodeConvention(selectedConvention);
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
                           setShowQrCode(true);
                         }}
                         style={{
@@ -1487,6 +2514,249 @@ export default function AdminPanel() {
         </div>
       </div>
 
+<<<<<<< HEAD
+=======
+          {activeTab === 'coupon-codes' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <h2 style={{ margin: 0 }}>Coupon Code Management</h2>
+                <select
+                  value={couponCodeFilter}
+                  onChange={(e) => {
+                    setCouponCodeFilter(e.target.value as any);
+                    fetchCouponCodes();
+                  }}
+                  style={{
+                    padding: '0.5rem',
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    fontSize: '0.95rem'
+                  }}
+                >
+                  <option value="all">All Codes</option>
+                  <option value="available">Available</option>
+                  <option value="used">Used</option>
+                  <option value="expired">Expired</option>
+                </select>
+              </div>
+
+              {/* Upload Section */}
+              <div style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+                <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>Upload Coupon Codes</h3>
+                <p style={{ marginBottom: '1rem', color: '#666', fontSize: '0.95rem' }}>
+                  Enter coupon codes (one per line) or paste from a CSV file. Codes will be automatically converted to uppercase.
+                </p>
+                <textarea
+                  value={bulkUploadText}
+                  onChange={(e) => setBulkUploadText(e.target.value)}
+                  placeholder="Enter coupon codes, one per line:&#10;CODE1&#10;CODE2&#10;CODE3"
+                  style={{
+                    width: '100%',
+                    minHeight: '150px',
+                    padding: '0.75rem',
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    fontSize: '0.95rem',
+                    fontFamily: 'monospace',
+                    marginBottom: '1rem'
+                  }}
+                />
+                <p style={{ marginBottom: '1rem', color: '#666', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                  Note: All codes will automatically expire 1 year from the date of upload.
+                </p>
+                <button
+                  onClick={async () => {
+                    if (!bulkUploadText.trim()) {
+                      alert('Please enter at least one coupon code');
+                      return;
+                    }
+                    
+                    if (uploadingCodes) return; // Prevent double submission
+                    
+                    const codes = bulkUploadText
+                      .split('\n')
+                      .map(line => line.trim())
+                      .filter(line => line.length > 0);
+                    
+                    setUploadingCodes(true);
+                    try {
+                      const res = await fetch('/api/admin/coupon-codes', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ codes })
+                      });
+                      
+                      const data = await res.json();
+                      if (res.ok) {
+                        setBulkUploadText('');
+                        fetchCouponCodes();
+                        // Show success message if codes were created
+                        if (data.created > 0) {
+                          const message = `${data.created} code(s) uploaded successfully${data.errorCount > 0 ? `. ${data.errorCount} skipped (duplicates or errors).` : '.'}`;
+                          console.log(message);
+                        }
+                      } else {
+                        const errorMsg = data.message || data.error || 'Failed to upload coupon codes';
+                        alert(errorMsg);
+                        console.error('Upload error:', data);
+                      }
+                    } catch (error) {
+                      console.error('Error uploading coupon codes:', error);
+                      alert('Failed to upload coupon codes. Please check the console for details.');
+                    } finally {
+                      setUploadingCodes(false);
+                    }
+                  }}
+                  disabled={uploadingCodes}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    background: uploadingCodes ? '#ccc' : '#667eea',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '0.95rem',
+                    fontWeight: 600,
+                    cursor: uploadingCodes ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    minWidth: '140px',
+                    justifyContent: 'center'
+                  }}
+                >
+                  {uploadingCodes ? (
+                    <>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: '16px',
+                          height: '16px',
+                          border: '2px solid rgba(255,255,255,0.3)',
+                          borderTopColor: 'white',
+                          borderRadius: '50%',
+                          animation: 'spin 0.6s linear infinite'
+                        }}
+                      />
+                      Uploading...
+                    </>
+                  ) : (
+                    'Upload Codes'
+                  )}
+                </button>
+              </div>
+
+              {/* Statistics */}
+              <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, padding: '1rem', background: '#e3f2fd', borderRadius: '8px', minWidth: '150px' }}>
+                  <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem' }}>Total Codes</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 600 }}>{couponCodes.length}</div>
+                </div>
+                <div style={{ flex: 1, padding: '1rem', background: '#e8f5e9', borderRadius: '8px', minWidth: '150px' }}>
+                  <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem' }}>Available</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                    {couponCodes.filter((c: any) => c.status === 'available').length}
+                  </div>
+                </div>
+                <div style={{ flex: 1, padding: '1rem', background: '#fff3e0', borderRadius: '8px', minWidth: '150px' }}>
+                  <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.25rem' }}>Used</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                    {couponCodes.filter((c: any) => c.status === 'used').length}
+                  </div>
+                </div>
+              </div>
+
+              {/* Codes List */}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white' }}>
+                  <thead>
+                    <tr style={{ background: '#f8f9fa' }}>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Code</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Status</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Assigned To</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Copied At</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Emailed At</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Expires At</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Created</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {couponCodes.length > 0 ? (
+                      couponCodes.map((code: any) => (
+                        <tr key={code.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
+                          <td style={{ padding: '0.75rem', fontFamily: 'monospace', fontWeight: 600 }}>{code.code}</td>
+                          <td style={{ padding: '0.75rem' }}>
+                            <span style={{
+                              padding: '0.25rem 0.75rem',
+                              borderRadius: '4px',
+                              fontSize: '0.85rem',
+                              background: code.status === 'available' ? '#e8f5e9' : 
+                                         code.status === 'used' ? '#fff3e0' : '#ffebee',
+                              color: code.status === 'available' ? '#2e7d32' : 
+                                     code.status === 'used' ? '#e65100' : '#c62828'
+                            }}>
+                              {code.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem' }}>{code.response_id || '-'}</td>
+                          <td style={{ padding: '0.75rem' }}>
+                            {code.copied_at ? new Date(code.copied_at).toLocaleString() : '-'}
+                          </td>
+                          <td style={{ padding: '0.75rem' }}>
+                            {code.emailed_at ? new Date(code.emailed_at).toLocaleString() : '-'}
+                          </td>
+                          <td style={{ padding: '0.75rem' }}>
+                            {code.expires_at ? new Date(code.expires_at).toLocaleString() : '-'}
+                          </td>
+                          <td style={{ padding: '0.75rem' }}>
+                            {new Date(code.created_at).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '0.75rem' }}>
+                            {code.status === 'available' && (
+                              <button
+                                onClick={async () => {
+                                  if (!confirm(`Delete coupon code ${code.code}?`)) return;
+                                  try {
+                                    const res = await fetch(`/api/admin/coupon-codes?id=${code.id}`, {
+                                      method: 'DELETE'
+                                    });
+                                    if (res.ok) {
+                                      fetchCouponCodes();
+                                    }
+                                  } catch (error) {
+                                    console.error('Error deleting coupon code:', error);
+                                  }
+                                }}
+                                style={{
+                                  padding: '0.25rem 0.75rem',
+                                  background: '#e74c3c',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontSize: '0.85rem'
+                                }}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+                          No coupon codes found. Upload codes above to get started.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+>>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
       {/* QR Code Modal */}
       {showQrCode && qrCodeLink && typeof window !== 'undefined' && (
         <div
