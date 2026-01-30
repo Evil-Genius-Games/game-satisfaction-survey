@@ -27,7 +27,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   const [couponDelivered, setCouponDelivered] = useState(false);
   const [conventionDisplayName, setConventionDisplayName] = useState<string | null>(null);
   const isSubmittingRef = useRef(false);
-<<<<<<< HEAD
   const [selectedGMName, setSelectedGMName] = useState<string | null>(null);
   const [selectedGMOptionId, setSelectedGMOptionId] = useState<number | null>(null);
   const [filteredAdventures, setFilteredAdventures] = useState<any[]>([]);
@@ -38,13 +37,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   // Generate a temporary coupon code for QR code display
   const tempCouponCode = useMemo(() => {
     if (couponCode) return couponCode;
-=======
-  
-  // Use assigned coupon code or generate a temporary one as fallback
-  const tempCouponCode = useMemo(() => {
-    if (couponCode) return couponCode;
-    // Fallback: generate temporary code only if no code has been assigned yet
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     const prefix = 'GM';
     const randomNum = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
     return `${prefix}${randomNum}`;
@@ -53,15 +45,8 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   // Auto-fill convention if pre-selected and find display name
   useEffect(() => {
     if (preSelectedConvention && survey) {
-<<<<<<< HEAD
       const conventionQuestion = survey.questions.find(q => q.question_text === 'What convention are you attending?');
       if (conventionQuestion && conventionQuestion.options) {
-=======
-      const conventionQuestion = survey && survey.questions && Array.isArray(survey.questions)
-        ? survey.questions.find(q => q.question_text === 'What convention are you attending?')
-        : null;
-      if (conventionQuestion && conventionQuestion.options && Array.isArray(conventionQuestion.options)) {
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
         // First try to match by option_value (the stored value, e.g., "gen_con")
         let matchingOption = conventionQuestion.options.find(
           opt => opt.option_value?.toLowerCase() === preSelectedConvention.toLowerCase()
@@ -123,20 +108,13 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
   // Filter questions based on conditional logic
   const visibleQuestions = useMemo(() => {
-<<<<<<< HEAD
     if (!survey) return [];
-=======
-    if (!survey || !survey.questions || !Array.isArray(survey.questions)) return [];
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     
     const questions = survey.questions;
     const gmInterestQuestion = questions.find(q => q.display_order === 7);
     const wantsToLearnGM = gmInterestQuestion && answers[gmInterestQuestion.id] === 'yes';
     const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
-<<<<<<< HEAD
     const adventureQuestion = questions.find(q => q.question_text === 'What adventure did you play?');
-=======
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     
     const filtered = questions.filter(q => {
       // If skipping to GM questions, only show those
@@ -159,7 +137,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       
       return false;
     });
-<<<<<<< HEAD
 
     // Insert GM selection before adventure question if GMs exist and adventure question is visible
     // Find GM question (question with "GM" or "Game Master" in text)
@@ -181,10 +158,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
     
     return result;
-=======
-    
-    return filtered;
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
   }, [survey, answers, skipToGMQuestions, preSelectedConvention]);
 
   // Adjust current question index if visible questions change
@@ -196,19 +169,8 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
   }, [visibleQuestions.length]);
 
-<<<<<<< HEAD
   useEffect(() => {
     fetch(`/api/survey/${surveyId}`)
-=======
-  // Initial load
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (preSelectedConvention) {
-      params.append('convention', preSelectedConvention);
-    }
-    const paramString = params.toString() ? `?${params.toString()}` : '';
-    fetch(`/api/survey/${surveyId}${paramString}`)
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
       .then(res => res.json())
       .then(data => {
         setSurvey(data);
@@ -218,7 +180,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         console.error('Error fetching survey:', err);
         setLoading(false);
       });
-<<<<<<< HEAD
 
   }, [surveyId]);
 
@@ -559,49 +520,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
     
     // Normal answer handling for non-GM questions
-=======
-  }, [surveyId, preSelectedConvention]);
-
-  // Reload survey when GM is selected in answers - this filters both convention and adventure options
-  useEffect(() => {
-    if (!survey) return;
-    
-    // Find GM question (may vary, but typically contains "GM" or "game master")
-    const gmQuestion = survey && survey.questions && Array.isArray(survey.questions)
-      ? survey.questions.find(q => 
-          q.question_text?.toLowerCase().includes('gm') || 
-          q.question_text?.toLowerCase().includes('game master') ||
-          q.question_text?.toLowerCase().includes('who was your')
-        )
-      : null;
-    
-    const selectedGMId = gmQuestion ? answers[gmQuestion.id] : null;
-    
-    // Reload when GM is selected or deselected to filter convention/adventure options
-    const params = new URLSearchParams();
-    if (preSelectedConvention) {
-      params.append('convention', preSelectedConvention);
-    }
-    if (selectedGMId) {
-      params.append('gmId', String(selectedGMId));
-    }
-    const paramString = params.toString() ? `?${params.toString()}` : '';
-    
-    // Only reload if GM selection changed
-    if (selectedGMId !== undefined) {
-      fetch(`/api/survey/${surveyId}${paramString}`)
-        .then(res => res.json())
-        .then(data => {
-          setSurvey(data);
-        })
-        .catch(err => {
-          console.error('Error reloading survey with GM filter:', err);
-        });
-    }
-  }, [answers, survey, surveyId, preSelectedConvention]);
-
-  const handleAnswer = (questionId: number, value: any) => {
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     setAnswers(prev => {
       const newAnswers = {
         ...prev,
@@ -610,19 +528,10 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       
       // If they answer "no" to "Would you like to learn more about being a GM?"
       // Clear name and email answers
-<<<<<<< HEAD
       if (questionId === survey?.questions.find(q => q.display_order === 7)?.id && value === 'no') {
         const firstNameQuestion = survey?.questions.find(q => q.display_order === 8);
         const lastNameQuestion = survey?.questions.find(q => q.display_order === 9);
         const emailQuestion = survey?.questions.find(q => q.display_order === 10);
-=======
-      const questions = survey?.questions && Array.isArray(survey.questions) ? survey.questions : [];
-      const gmInterestQuestion = questions.find(q => q.display_order === 7);
-      if (questionId === gmInterestQuestion?.id && value === 'no') {
-        const firstNameQuestion = questions.find(q => q.display_order === 8);
-        const lastNameQuestion = questions.find(q => q.display_order === 9);
-        const emailQuestion = questions.find(q => q.display_order === 10);
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
         if (firstNameQuestion) delete newAnswers[firstNameQuestion.id];
         if (lastNameQuestion) delete newAnswers[lastNameQuestion.id];
         if (emailQuestion) delete newAnswers[emailQuestion.id];
@@ -634,12 +543,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
   const handleNext = async () => {
     // Check if we're on the recommendation question (Q6)
-<<<<<<< HEAD
     const recommendationQuestion = survey?.questions.find(q => q.display_order === 6);
-=======
-    const questions = survey?.questions && Array.isArray(survey.questions) ? survey.questions : [];
-    const recommendationQuestion = questions.find(q => q.display_order === 6);
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     const currentQ = visibleQuestions[currentQuestion];
     
     // If we just answered the recommendation question, submit survey and show coupon page
@@ -670,22 +574,13 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       .map(q => q.id) || [];
     
     // Get convention question
-<<<<<<< HEAD
     const conventionQuestion = survey?.questions.find(q => q.question_text === 'What convention are you attending?');
-=======
-    const questions = survey?.questions && Array.isArray(survey.questions) ? survey.questions : [];
-    const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     
     // Get all answers up to and including the recommendation question (exclude GM questions)
     const answerArray = Object.entries(answers)
       .filter(([questionId]) => !gmQuestionIds.includes(parseInt(questionId)))
       .map(([questionId, value]) => {
-<<<<<<< HEAD
         const question = survey?.questions.find(q => q.id === parseInt(questionId));
-=======
-        const question = questions.find(q => q.id === parseInt(questionId));
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
         
         if (Array.isArray(value)) {
           // Multiple choice - create multiple answer entries
@@ -743,7 +638,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     if (!idToUse) return;
     
     try {
-<<<<<<< HEAD
       const response = await fetch('/api/coupon/deliver', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -754,38 +648,13 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       });
       
       if (response.ok) {
-=======
-      // Assign a coupon code from the uploaded pool
-      const assignResponse = await fetch('/api/admin/coupon-codes/assign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          responseId: idToUse
-        })
-      });
-      
-      if (assignResponse.ok) {
-        const assignData = await assignResponse.json();
-        if (assignData.couponCode) {
-          setCouponCode(assignData.couponCode.code);
-        }
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
         setCouponDelivered(true);
         if (!responseId) {
           setResponseId(idToUse);
         }
-<<<<<<< HEAD
       }
     } catch (error) {
       console.error('Error recording coupon delivery:', error);
-=======
-      } else {
-        // If no coupon code is available, fall back to temp code
-        console.warn('No coupon code available from pool, using temp code');
-      }
-    } catch (error) {
-      console.error('Error assigning coupon code:', error);
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     }
   };
 
@@ -830,23 +699,14 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       .map(q => q.id) || [];
     
     // Get convention question
-<<<<<<< HEAD
     const conventionQuestion = survey?.questions.find(q => q.question_text === 'What convention are you attending?');
-=======
-    const questions = survey?.questions && Array.isArray(survey.questions) ? survey.questions : [];
-    const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     
     // Exclude GM questions from main survey answers
     // Include convention answer if pre-selected, even if question was hidden
     const answerArray = Object.entries(answers)
       .filter(([questionId]) => !gmQuestionIds.includes(parseInt(questionId)))
       .map(([questionId, value]) => {
-<<<<<<< HEAD
         const question = survey?.questions.find(q => q.id === parseInt(questionId));
-=======
-        const question = questions.find(q => q.id === parseInt(questionId));
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
         
         if (Array.isArray(value)) {
           // Multiple choice - create multiple answer entries
@@ -908,13 +768,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
     
     // Get GM questions (display_order 8, 9, 10)
-<<<<<<< HEAD
     const gmQuestions = survey?.questions.filter(q => q.display_order >= 8 && q.display_order <= 10) || [];
-=======
-    const gmQuestions = survey?.questions && Array.isArray(survey.questions) 
-      ? survey.questions.filter(q => q.display_order >= 8 && q.display_order <= 10)
-      : [];
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
     const firstNameQuestion = gmQuestions.find(q => q.display_order === 8);
     const lastNameQuestion = gmQuestions.find(q => q.display_order === 9);
     const emailQuestion = gmQuestions.find(q => q.display_order === 10);
@@ -1140,23 +994,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                       await navigator.clipboard.writeText(tempCouponCode);
                       setCopied(true);
                       setTimeout(() => setCopied(false), 2000);
-<<<<<<< HEAD
-=======
-                      
-                      // Mark code as used when copied
-                      try {
-                        await fetch('/api/admin/coupon-codes/mark-used', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            code: tempCouponCode,
-                            action: 'copied'
-                          })
-                        });
-                      } catch (error) {
-                        console.error('Error marking code as used:', error);
-                      }
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
                     } catch (err) {
                       console.error('Failed to copy:', err);
                     }
@@ -1233,24 +1070,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                       });
                       if (response.ok) {
                         setEmailSent(true);
-<<<<<<< HEAD
-=======
-                        
-                        // Mark code as used when emailed
-                        try {
-                          await fetch('/api/admin/coupon-codes/mark-used', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              code: tempCouponCode,
-                              action: 'emailed'
-                            })
-                          });
-                        } catch (error) {
-                          console.error('Error marking code as used:', error);
-                        }
-                        
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
                         // Update coupon delivery record with email if we have responseId
                         if (responseId) {
                           await fetch('/api/coupon/deliver', {
@@ -1529,11 +1348,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
         {question.question_type === 'multiple_choice' && question.options && (
           <div className="question-options">
-<<<<<<< HEAD
             {question.options.map((option) => (
-=======
-            {[...question.options].sort((a, b) => a.option_text.toLowerCase().localeCompare(b.option_text.toLowerCase())).map((option) => (
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
               <label key={option.id} className="option-item">
                 <input
                   type="checkbox"
@@ -1556,11 +1371,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
         {question.question_type === 'single_choice' && question.options && (
           <div className="question-options">
-<<<<<<< HEAD
             {question.options.map((option) => (
-=======
-            {[...question.options].sort((a, b) => a.option_text.toLowerCase().localeCompare(b.option_text.toLowerCase())).map((option) => (
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
               <label key={option.id} className="option-item">
                 <input
                   type="radio"
@@ -1585,7 +1396,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
             style={{ padding: '1rem', fontSize: '1rem' }}
           >
             <option value="">Select an option...</option>
-<<<<<<< HEAD
             {(() => {
               // Filter adventures by GM - ONLY show adventures if GM is selected
               if (question.question_text === 'What adventure did you play?') {
@@ -1644,13 +1454,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                 </option>
               ));
             })()}
-=======
-            {[...question.options].sort((a, b) => a.option_text.toLowerCase().localeCompare(b.option_text.toLowerCase())).map((option) => (
-              <option key={option.id} value={option.option_value || option.option_text}>
-                {option.option_text}
-              </option>
-            ))}
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
           </select>
         )}
 

@@ -4,36 +4,12 @@ import pool from '@/lib/db';
 export async function GET() {
   const client = await pool.connect();
   try {
-<<<<<<< HEAD
     // Get all distinct convention values from answers
     const answersResult = await client.query(
       `SELECT DISTINCT
         a.answer_value,
         a.answer_text,
         COALESCE(a.answer_value, a.answer_text) as sort_key
-=======
-    // First, get conventions from question_options (available dropdown options)
-    const optionsResult = await client.query(
-      `SELECT DISTINCT 
-        COALESCE(qo.option_text, qo.option_value) as convention,
-        qo.option_text,
-        qo.option_value,
-        LOWER(COALESCE(qo.option_text, qo.option_value)) as sort_key
-      FROM question_options qo
-      JOIN questions q ON qo.question_id = q.id
-      WHERE q.question_text = 'What convention are you attending?'
-        AND (qo.option_text IS NOT NULL OR qo.option_value IS NOT NULL)
-      ORDER BY sort_key`
-    );
-    
-    // Also get any conventions from answers that might not be in options yet
-    const answersResult = await client.query(
-      `SELECT DISTINCT 
-        COALESCE(a.answer_text, a.answer_value) as convention,
-        a.answer_text,
-        a.answer_value,
-        LOWER(COALESCE(a.answer_text, a.answer_value)) as sort_key
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
       FROM answers a
       JOIN questions q ON a.question_id = q.id
       WHERE q.question_text = 'What convention are you attending?'
@@ -41,7 +17,6 @@ export async function GET() {
       ORDER BY sort_key`
     );
     
-<<<<<<< HEAD
     // Get all convention options
     const optionsResult = await client.query(
       `SELECT qo.option_text, qo.option_value
@@ -132,26 +107,6 @@ export async function GET() {
       .sort((a, b) => a.display.localeCompare(b.display));
     
     return NextResponse.json(conventions);
-=======
-    // Combine both sources, preferring option_text for display
-    const optionConventions = optionsResult.rows
-      .map((row: any) => row.option_text || row.option_value)
-      .filter(Boolean);
-    
-    const answerConventions = answersResult.rows
-      .map((row: any) => row.answer_text || row.answer_value || row.convention)
-      .filter(Boolean);
-    
-    // Merge and deduplicate, prioritizing options
-    const allConventions = [...new Set([...optionConventions, ...answerConventions])];
-    
-    // Sort alphabetically (case-insensitive)
-    const sortedConventions = allConventions.sort((a, b) => 
-      a.toLowerCase().localeCompare(b.toLowerCase())
-    );
-    
-    return NextResponse.json(sortedConventions);
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
   } catch (error: any) {
     console.error('Error fetching conventions:', error);
     return NextResponse.json({ 
@@ -162,7 +117,3 @@ export async function GET() {
     client.release();
   }
 }
-<<<<<<< HEAD
-=======
-
->>>>>>> d2d0cfed99cc64aaa43d507d95554cd6ac8f9023
