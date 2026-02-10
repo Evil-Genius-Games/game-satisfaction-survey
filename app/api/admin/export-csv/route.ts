@@ -62,9 +62,13 @@ export async function GET() {
         'Content-Disposition': `attachment; filename="survey-responses-${new Date().toISOString().split('T')[0]}.csv"`,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error exporting CSV:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      message: error?.message || 'Unknown error',
+      details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+    }, { status: 500 });
   }
 }
 

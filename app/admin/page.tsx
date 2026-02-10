@@ -518,6 +518,12 @@ export default function AdminPanel() {
   const handleExportCSV = async () => {
     try {
       const res = await fetch('/api/admin/export-csv');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('CSV export error:', errorData);
+        alert(`Failed to export CSV: ${errorData.error || 'Unknown error'}`);
+        return;
+      }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -885,19 +891,21 @@ export default function AdminPanel() {
                   onClick={async () => {
                     try {
                       const res = await fetch('/api/admin/export-gm-interest-csv');
-                      if (res.ok) {
-                        const blob = await res.blob();
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `gm-interest-${new Date().toISOString().split('T')[0]}.csv`;
-                        document.body.appendChild(a);
-                        a.click();
-                        window.URL.revokeObjectURL(url);
-                        document.body.removeChild(a);
-                      } else {
-                        alert('Failed to export GM interest data');
+                      if (!res.ok) {
+                        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+                        console.error('GM interest CSV export error:', errorData);
+                        alert(`Failed to export GM interest data: ${errorData.error || 'Unknown error'}`);
+                        return;
                       }
+                      const blob = await res.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `gm-interest-${new Date().toISOString().split('T')[0]}.csv`;
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      document.body.removeChild(a);
                     } catch (error) {
                       console.error('Error exporting GM interest CSV:', error);
                       alert('Failed to export GM interest data');

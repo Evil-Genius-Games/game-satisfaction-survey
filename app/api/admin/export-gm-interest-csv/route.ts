@@ -3,6 +3,27 @@ import pool from '@/lib/db';
 
 export async function GET() {
   try {
+    // Check if gm_interest table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'gm_interest'
+      )
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      // Return empty CSV if table doesn't exist
+      const headers = ['ID', 'Response ID', 'First Name', 'Last Name', 'Email', 'Submitted At', 'Response Submitted At'];
+      const csv = headers.map(h => `"${h.replace(/"/g, '""')}"`).join(',') + '\n';
+      
+      return new NextResponse(csv, {
+        headers: {
+          'Content-Type': 'text/csv',
+          'Content-Disposition': `attachment; filename="gm-interest-${new Date().toISOString().split('T')[0]}.csv"`,
+        },
+      });
+    }
+
     const result = await pool.query(
       `SELECT 
         gi.id,
@@ -13,7 +34,7 @@ export async function GET() {
         gi.submitted_at,
         r.submitted_at as response_submitted_at
       FROM gm_interest gi
-      JOIN responses r ON gi.response_id = r.id
+      LEFT JOIN responses r ON gi.response_id = r.id
       ORDER BY gi.submitted_at DESC`
     );
 
@@ -42,9 +63,13 @@ export async function GET() {
         'Content-Disposition': `attachment; filename="gm-interest-${new Date().toISOString().split('T')[0]}.csv"`,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error exporting GM interest CSV:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      message: error?.message || 'Unknown error',
+      details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+    }, { status: 500 });
   }
 }
 
