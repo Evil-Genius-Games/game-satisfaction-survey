@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const responsesResult = await pool.query(
-      `SELECT 
+    const { searchParams } = new URL(request.url);
+    const conventionFilter = searchParams.get('convention');
+
+    // Build the query with optional convention filtering
+    let query = `
+      SELECT 
         r.id as response_id,
         r.submitted_at,
         r.respondent_email,
@@ -16,8 +20,27 @@ export async function GET() {
       LEFT JOIN answers a ON r.id = a.response_id
       LEFT JOIN questions q ON a.question_id = q.id
       WHERE r.survey_id = 1
-      ORDER BY r.submitted_at DESC, r.id, q.display_order`
-    );
+    `;
+
+    const queryParams: any[] = [];
+    
+    // If convention filter is provided, filter responses by convention
+    if (conventionFilter) {
+      query += `
+        AND r.id IN (
+          SELECT DISTINCT a2.response_id
+          FROM answers a2
+          JOIN questions q2 ON a2.question_id = q2.id
+          WHERE q2.question_text = 'What convention are you attending?'
+            AND (a2.answer_value = $1 OR a2.answer_text = $1)
+        )
+      `;
+      queryParams.push(conventionFilter);
+    }
+
+    query += ` ORDER BY r.submitted_at DESC, r.id, q.display_order`;
+
+    const responsesResult = await pool.query(query, queryParams);
 
     // Transform data for CSV
     const responsesMap = new Map();
@@ -56,10 +79,14 @@ export async function GET() {
       csv += csvRow.join(',') + '\n';
     });
 
+    const filename = conventionFilter 
+      ? `survey-responses-${conventionFilter.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.csv`
+      : `survey-responses-${new Date().toISOString().split('T')[0]}.csv`;
+
     return new NextResponse(csv, {
       headers: {
         'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename="survey-responses-${new Date().toISOString().split('T')[0]}.csv"`,
+        'Content-Disposition': `attachment; filename="${filename}"`,
       },
     });
   } catch (error: any) {

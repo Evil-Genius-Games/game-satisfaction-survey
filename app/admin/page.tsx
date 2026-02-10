@@ -50,6 +50,7 @@ export default function AdminPanel() {
   const [editingOption, setEditingOption] = useState<{ questionId: number; optionId: number; text: string } | null>(null);
   const [groupBy, setGroupBy] = useState<'convention' | 'game' | 'none'>('none');
   const [graphConventionFilter, setGraphConventionFilter] = useState<string>('all');
+  const [csvConventionFilter, setCsvConventionFilter] = useState<string>('all');
   const [conventions, setConventions] = useState<Array<{ value: string; display: string }>>([]);
   const [gmInterestData, setGmInterestData] = useState<any[]>([]);
   const [reprocessing, setReprocessing] = useState(false);
@@ -517,7 +518,8 @@ export default function AdminPanel() {
 
   const handleExportCSV = async () => {
     try {
-      const res = await fetch('/api/admin/export-csv');
+      const conventionParam = csvConventionFilter !== 'all' ? `?convention=${encodeURIComponent(csvConventionFilter)}` : '';
+      const res = await fetch(`/api/admin/export-csv${conventionParam}`);
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
         console.error('CSV export error:', errorData);
@@ -528,7 +530,11 @@ export default function AdminPanel() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `survey-responses-${new Date().toISOString().split('T')[0]}.csv`;
+      const conventionName = csvConventionFilter !== 'all' 
+        ? conventions.find(c => c.value === csvConventionFilter)?.display || csvConventionFilter
+        : 'all';
+      const filename = `survey-responses-${conventionName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -813,6 +819,34 @@ export default function AdminPanel() {
                       <option value="none">None</option>
                       <option value="convention">Convention</option>
                       <option value="game">Game/Adventure</option>
+                    </select>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.95rem' }}>
+                    Filter CSV by Convention:
+                    <select
+                      value={csvConventionFilter}
+                      onChange={(e) => setCsvConventionFilter(e.target.value)}
+                      style={{
+                        padding: '0.5rem',
+                        border: '1px solid #ccc',
+                        borderRadius: '4px',
+                        fontSize: '0.95rem',
+                        minWidth: '200px'
+                      }}
+                    >
+                      <option value="all">All Conventions</option>
+                      {(() => {
+                        // Get conventions from the convention question options (same as Dropdown Options tab)
+                        const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
+                        if (conventionQuestion && conventionQuestion.options) {
+                          return conventionQuestion.options.map(option => (
+                            <option key={option.id} value={option.option_value || option.option_text}>
+                              {option.option_text}
+                            </option>
+                          ));
+                        }
+                        return <option disabled>Loading conventions...</option>;
+                      })()}
                     </select>
                   </label>
                   <button
