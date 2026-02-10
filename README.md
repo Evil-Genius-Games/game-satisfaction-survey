@@ -36,7 +36,13 @@ Create a `.env.local` file with:
 ```env
 DATABASE_URL=your_postgresql_connection_string
 NEON_PROJECT_ID=your_neon_project_id
+RESEND_API_KEY=your_resend_api_key
+RESEND_FROM_EMAIL=noreply@yourdomain.com
 ```
+
+**Email Configuration:**
+- `RESEND_API_KEY`: Your Resend API key (get one at https://resend.com)
+- `RESEND_FROM_EMAIL`: The email address to send from (must be verified in Resend)
 
 4. Run the development server:
 ```bash
