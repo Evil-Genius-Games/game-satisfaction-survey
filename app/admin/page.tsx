@@ -1055,7 +1055,9 @@ export default function AdminPanel() {
                     }}
                   >
                     <option value="">Select a GM...</option>
-                    {gmAdventures.gms && gmAdventures.gms.map((gm: any) => (
+                    {gmAdventures.gms && [...gmAdventures.gms]
+                      .sort((a: any, b: any) => (a.option_text || '').localeCompare(b.option_text || ''))
+                      .map((gm: any) => (
                       <option key={gm.id} value={gm.id}>
                         {gm.option_text}
                       </option>
@@ -1151,6 +1153,7 @@ export default function AdminPanel() {
                                 <option value="">Select a convention...</option>
                                 {gmAdventures.availableConventions
                                   .filter((conv: any) => !selectedGM.conventions.some((c: any) => c.id === conv.id))
+                                  .sort((a: any, b: any) => (a.option_text || '').localeCompare(b.option_text || ''))
                                   .map((convention: any) => (
                                     <option key={convention.id} value={convention.id}>
                                       {convention.option_text}
@@ -1245,6 +1248,7 @@ export default function AdminPanel() {
                                       <option value="">Select an adventure...</option>
                                       {gmAdventures.availableAdventures
                                         .filter((adv: any) => !allAdventuresForConvention.includes(adv.id))
+                                        .sort((a: any, b: any) => (a.option_text || '').localeCompare(b.option_text || ''))
                                         .map((adventure: any) => (
                                           <option key={adventure.id} value={adventure.id}>
                                             {adventure.option_text}
