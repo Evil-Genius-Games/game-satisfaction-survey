@@ -13,6 +13,7 @@ interface SurveyData {
 export default function SurveyForm({ surveyId, preSelectedConvention }: { surveyId: number; preSelectedConvention?: string | null }) {
   const [survey, setSurvey] = useState<SurveyData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [couponCode, setCouponCode] = useState<string>('');
   const [answers, setAnswers] = useState<Record<number, any>>({});
@@ -33,7 +34,12 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   const [filteredGMs, setFilteredGMs] = useState<any[]>([]);
   const [selectedConventionOptionId, setSelectedConventionOptionId] = useState<number | null>(null);
   const previousConventionRef = useRef<string | null>(null);
-  
+  const preFilledConventionRef = useRef<string | null>(null);
+  const lastFetchedAdventuresKeyRef = useRef<string | null>(null);
+  const lastFetchedGMsKeyRef = useRef<string | null>(null);
+  const ratingQuestionRenderCountRef = useRef(0);
+  const loopFrozenRef = useRef(false);
+
   // Generate a temporary coupon code for QR code display
   const tempCouponCode = useMemo(() => {
     if (couponCode) return couponCode;
@@ -42,152 +48,182 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     return `${prefix}${randomNum}`;
   }, [couponCode]);
 
-  // Auto-fill convention if pre-selected and find display name
+  // Auto-fill convention if pre-selected (run only when preSelectedConvention or survey changes to avoid re-run loops)
   useEffect(() => {
-    if (preSelectedConvention && survey) {
-      const conventionQuestion = survey.questions.find(q => q.question_text === 'What convention are you attending?');
-      if (conventionQuestion && conventionQuestion.options) {
-        // First try to match by option_value (the stored value, e.g., "gen_con")
-        let matchingOption = conventionQuestion.options.find(
-          opt => opt.option_value?.toLowerCase() === preSelectedConvention.toLowerCase()
-        );
-        
-        // If not found, try matching by option_text (display name, e.g., "Gen Con")
-        if (!matchingOption) {
-          matchingOption = conventionQuestion.options.find(
-            opt => opt.option_text.toLowerCase() === preSelectedConvention.toLowerCase()
-          );
-        }
-        
-        // If still not found, try partial match on option_value
-        if (!matchingOption) {
-          matchingOption = conventionQuestion.options.find(
-            opt => opt.option_value?.toLowerCase().includes(preSelectedConvention.toLowerCase()) ||
-                   preSelectedConvention.toLowerCase().includes(opt.option_value?.toLowerCase() || '')
-          );
-        }
-        
-        // If still not found, try partial match on option_text
-        if (!matchingOption) {
-          matchingOption = conventionQuestion.options.find(
-            opt => opt.option_text.toLowerCase().includes(preSelectedConvention.toLowerCase()) ||
-                   preSelectedConvention.toLowerCase().includes(opt.option_text.toLowerCase())
-          );
-        }
-        
-        if (matchingOption) {
-          // Always use option_text (display name) for display, e.g., "Gen Con"
-          setConventionDisplayName(matchingOption.option_text);
-          
-          if (!answers[conventionQuestion.id]) {
-            // Store the option_value for database consistency
-            setAnswers(prev => ({
-              ...prev,
-              [conventionQuestion.id]: matchingOption.option_value || matchingOption.option_text
-            }));
-          }
-        } else {
-          // Fallback: try to format the convention name nicely
-          // Convert "gen_con" to "Gen Con"
-          const formattedName = preSelectedConvention
-            .split('_')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-            .join(' ');
-          setConventionDisplayName(formattedName);
-          
-          if (!answers[conventionQuestion.id]) {
-            setAnswers(prev => ({
-              ...prev,
-              [conventionQuestion.id]: preSelectedConvention
-            }));
-          }
-        }
-      }
+    if (!preSelectedConvention || !survey) return;
+    const key = `${preSelectedConvention}|${survey.id}`;
+    if (preFilledConventionRef.current === key) return;
+    preFilledConventionRef.current = key;
+
+    const conventionQuestion = survey.questions.find(q => q.question_text === 'What convention are you attending?');
+    if (!conventionQuestion?.options) return;
+
+    let matchingOption = conventionQuestion.options.find(
+      opt => opt.option_value?.toLowerCase() === preSelectedConvention.toLowerCase()
+    );
+    if (!matchingOption) {
+      matchingOption = conventionQuestion.options.find(
+        opt => opt.option_text.toLowerCase() === preSelectedConvention.toLowerCase()
+      );
     }
-  }, [preSelectedConvention, survey, answers]);
+    if (!matchingOption) {
+      matchingOption = conventionQuestion.options.find(
+        opt => opt.option_value?.toLowerCase().includes(preSelectedConvention.toLowerCase()) ||
+               preSelectedConvention.toLowerCase().includes(opt.option_value?.toLowerCase() || '')
+      );
+    }
+    if (!matchingOption) {
+      matchingOption = conventionQuestion.options.find(
+        opt => opt.option_text.toLowerCase().includes(preSelectedConvention.toLowerCase()) ||
+               preSelectedConvention.toLowerCase().includes(opt.option_text.toLowerCase())
+      );
+    }
+
+    if (matchingOption) {
+      setConventionDisplayName(matchingOption.option_text);
+      setAnswers(prev => ({
+        ...prev,
+        [conventionQuestion.id]: matchingOption.option_value || matchingOption.option_text
+      }));
+    } else {
+      const formattedName = preSelectedConvention
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+      setConventionDisplayName(formattedName);
+      setAnswers(prev => ({
+        ...prev,
+        [conventionQuestion.id]: preSelectedConvention
+      }));
+    }
+  }, [preSelectedConvention, survey]);
 
   // Filter questions based on conditional logic
+  const order = (q: { display_order?: number | null }) => Number(q.display_order ?? 0);
+
   const visibleQuestions = useMemo(() => {
     if (!survey) return [];
-    
-    const questions = survey.questions;
-    const gmInterestQuestion = questions.find(q => q.display_order === 7);
+    const questions = survey.questions ?? [];
+    if (questions.length === 0) return [];
+
+    const gmInterestQuestion = questions.find(q => order(q) === 7);
     const wantsToLearnGM = gmInterestQuestion && answers[gmInterestQuestion.id] === 'yes';
     const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
     const adventureQuestion = questions.find(q => q.question_text === 'What adventure did you play?');
-    
+
     const filtered = questions.filter(q => {
-      // If skipping to GM questions, only show those
+      const o = order(q);
       if (skipToGMQuestions) {
-        return q.display_order >= 8 && q.display_order <= 10;
+        return o >= 8 && o <= 10;
       }
-      
-      // Hide convention question if pre-selected
       if (preSelectedConvention && q.id === conventionQuestion?.id) {
         return false;
       }
-      
-      // Always show questions 1-7 (now includes the recommendation question)
-      if (q.display_order <= 7) return true;
-      
-      // Only show name/email (questions 8-10) if they answered "yes" to Q7 (GM interest)
-      if (q.display_order >= 8 && q.display_order <= 10) {
+      if (o <= 7) return true;
+      if (o >= 8 && o <= 10) {
         return wantsToLearnGM;
       }
-      
       return false;
     });
 
-    // Insert GM selection before adventure question if GMs exist and adventure question is visible
-    // Find GM question (question with "GM" or "Game Master" in text)
-    const gmQuestion = questions.find(q => 
+    const gmQuestion = questions.find(q =>
       (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
       ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
     );
 
-    const result = [...filtered];
-    // Insert GM question before adventure question if both exist
+    let result = [...filtered];
     if (gmQuestion && adventureQuestion && filtered.some(q => q.id === adventureQuestion.id)) {
       const adventureIndex = result.findIndex(q => q.id === adventureQuestion.id);
       const gmIndex = result.findIndex(q => q.id === gmQuestion.id);
-      
-      // If GM question is not already in filtered, insert it before adventure
       if (gmIndex === -1 && adventureIndex !== -1) {
         result.splice(adventureIndex, 0, gmQuestion);
       }
     }
-    
+    if (result.length === 0 && questions.length > 0) {
+      result = questions.filter(q => order(q) <= 7);
+      if (result.length === 0) result = [...questions];
+    }
     return result;
   }, [survey, answers, skipToGMQuestions, preSelectedConvention]);
 
-  // Adjust current question index if visible questions change
-  // But DON'T change it if we're still within valid bounds
+  // When filter returns empty but survey has questions, use survey.questions so we never loop on "loading questions"
+  const effectiveVisibleQuestions =
+    visibleQuestions.length > 0
+      ? visibleQuestions
+      : (survey?.questions?.length ? (survey.questions ?? []) : []);
+
+  const safeCurrentIndex = Math.min(Math.max(0, currentQuestion), Math.max(0, (effectiveVisibleQuestions?.length ?? 1) - 1));
+  const currentQuestionObj = effectiveVisibleQuestions?.[safeCurrentIndex];
+  const qText = (currentQuestionObj?.question_text ?? '').toLowerCase();
+  const isOnRatingQuestion =
+    currentQuestionObj?.question_type === 'rating' ||
+    (qText.includes('rate') && (qText.includes('gm') || qText.includes('1-5') || qText.includes('1 to 5')));
+
+  if (isOnRatingQuestion) {
+    ratingQuestionRenderCountRef.current += 1;
+    if (ratingQuestionRenderCountRef.current > 12) loopFrozenRef.current = true;
+  } else {
+    ratingQuestionRenderCountRef.current = 0;
+    loopFrozenRef.current = false;
+  }
+
+  // Adjust current question index only when visible questions LENGTH changes. Skip when on rating question or loop frozen to prevent loop.
   useEffect(() => {
-    if (visibleQuestions.length > 0 && currentQuestion >= visibleQuestions.length) {
-      // Only adjust if we're truly out of bounds
-      setCurrentQuestion(visibleQuestions.length - 1);
+    if (loopFrozenRef.current || isOnRatingQuestion) return;
+    const len = visibleQuestions.length;
+    if (len > 0) {
+      setCurrentQuestion((prev) => (prev >= len ? len - 1 : prev));
     }
-  }, [visibleQuestions.length]);
+  }, [visibleQuestions.length, isOnRatingQuestion]);
 
   useEffect(() => {
-    fetch(`/api/survey/${surveyId}`)
-      .then(res => res.json())
-      .then(data => {
-        setSurvey(data);
+    setLoadError(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    fetch(`/api/survey/${surveyId}`, { signal: controller.signal })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then((body: { error?: string }) => {
+            throw new Error(body?.error || `Failed to load survey (${res.status})`);
+          }).catch(() => {
+            throw new Error(`Failed to load survey (${res.status})`);
+          });
+        }
+        return res.json();
+      })
+      .then((data: SurveyData) => {
+        if (!data || !Array.isArray(data.questions)) {
+          setLoadError('Invalid survey data');
+          setSurvey(null);
+        } else {
+          setSurvey(data);
+        }
         setLoading(false);
       })
       .catch(err => {
-        console.error('Error fetching survey:', err);
+        if (err.name === 'AbortError') {
+          setLoadError('Request timed out. Please refresh the page.');
+        } else {
+          setLoadError(err?.message || 'Failed to load survey. Please refresh the page.');
+        }
+        setSurvey(null);
         setLoading(false);
-      });
+      })
+      .finally(() => clearTimeout(timeoutId));
 
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [surveyId]);
 
-  // Fetch GMs when convention is selected (either from answers or preSelectedConvention)
+  // Fetch GMs when convention is selected. Skip when on rating question or loop frozen to prevent loop.
   useEffect(() => {
+    if (loopFrozenRef.current || isOnRatingQuestion) return;
     const conventionQuestion = survey?.questions.find(q => q.question_text === 'What convention are you attending?');
     const selectedConvention = conventionQuestion && (answers[conventionQuestion.id] || preSelectedConvention);
-    
+
     if (selectedConvention && conventionQuestion) {
       // Find the convention option to get its ID or value
       const conventionOption = conventionQuestion.options?.find((opt: any) => {
@@ -201,19 +237,23 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       
       if (conventionOption) {
         setSelectedConventionOptionId(conventionOption.id);
-        // Fetch GMs for this convention (API will return all GMs if no associations exist)
-        fetch(`/api/survey/gms-by-convention?convention_option_id=${conventionOption.id}`)
-          .then(res => {
-            if (!res.ok) {
-              throw new Error(`HTTP error! status: ${res.status}`);
-            }
-            return res.json();
-          })
-          .then(data => {
-            if (data.gms && Array.isArray(data.gms)) {
-              // API returns all GMs if convention has no associations, so always set it
-              setFilteredGMs(data.gms);
-            } else {
+        const gmFetchKey = `gms:${conventionOption.id}`;
+        if (lastFetchedGMsKeyRef.current === gmFetchKey) {
+          // Already fetched for this convention; skip to avoid re-render loop
+        } else {
+          lastFetchedGMsKeyRef.current = gmFetchKey;
+          // Fetch GMs for this convention (API will return all GMs if no associations exist)
+          fetch(`/api/survey/gms-by-convention?convention_option_id=${conventionOption.id}`)
+            .then(res => {
+              if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+              }
+              return res.json();
+            })
+            .then(data => {
+              if (data.gms && Array.isArray(data.gms)) {
+                setFilteredGMs(data.gms);
+              } else {
               // If no GMs in response, fall back to all GMs from question options
               const gmQuestion = survey?.questions.find(q => 
                 (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
@@ -230,23 +270,23 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               }
             }
           })
-          .catch(err => {
-            console.error('Error fetching GMs by convention:', err);
-            // On error, fall back to all GMs from question options
-            const gmQuestion = survey?.questions.find(q => 
-              (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
-              ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
-            );
-            if (gmQuestion && gmQuestion.options) {
-              setFilteredGMs(gmQuestion.options.map((opt: any) => ({
-                id: opt.id,
-                option_text: opt.option_text,
-                option_value: opt.option_value
-              })));
-            } else {
-              setFilteredGMs([]);
-            }
-          });
+            .catch(err => {
+              console.error('Error fetching GMs by convention:', err);
+              const gmQuestion = survey?.questions.find(q =>
+                (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+                ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+              );
+              if (gmQuestion && gmQuestion.options) {
+                setFilteredGMs(gmQuestion.options.map((opt: any) => ({
+                  id: opt.id,
+                  option_text: opt.option_text,
+                  option_value: opt.option_value
+                })));
+              } else {
+                setFilteredGMs([]);
+              }
+            });
+        }
       } else {
         // Try by value/name
         fetch(`/api/survey/gms-by-convention?convention_value=${encodeURIComponent(selectedConvention)}`)
@@ -298,7 +338,10 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       
       // Clear GM and adventure selections when convention changes (only if convention actually changed)
       const currentConvention = answers[conventionQuestion.id] || preSelectedConvention;
-      if (previousConventionRef.current !== null && previousConventionRef.current !== currentConvention) {
+      const norm = (s: string | null | undefined) => (s ?? '').toString().toLowerCase().trim();
+      if (previousConventionRef.current !== null && norm(previousConventionRef.current) !== norm(currentConvention)) {
+        lastFetchedAdventuresKeyRef.current = null;
+        lastFetchedGMsKeyRef.current = null;
         setSelectedGMOptionId(null);
         setSelectedGMName(null);
         setFilteredAdventures([]);
@@ -326,12 +369,12 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       setSelectedConventionOptionId(null);
       setFilteredGMs([]);
     }
-  }, [answers, survey, preSelectedConvention]);
+  }, [answers, survey, preSelectedConvention, isOnRatingQuestion]);
 
-  // Sync selectedGMOptionId with GM answer if GM was already answered, and fetch adventures
+  // Sync selectedGMOptionId with GM answer and fetch adventures. Skip when on rating question or loop frozen to prevent loop.
   useEffect(() => {
-    if (survey) {
-      const gmQuestion = survey.questions.find(q => 
+    if (loopFrozenRef.current || !survey || isOnRatingQuestion) return;
+    const gmQuestion = survey.questions.find(q => 
         (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
         ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
       );
@@ -375,27 +418,30 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
           });
           
           if (conventionOption) {
-            console.log('Fetching adventures for GM option ID:', gmOptionIdToUse, 'and Convention option ID:', conventionOption.id);
-            fetch(`/api/survey/adventures-by-gm?gm_option_id=${gmOptionIdToUse}&convention_option_id=${conventionOption.id}`)
-              .then(res => {
-                if (!res.ok) {
-                  throw new Error(`HTTP error! status: ${res.status}`);
-                }
-                return res.json();
-              })
-              .then(data => {
-                console.log('Adventures fetched:', data);
-                if (data.adventures && Array.isArray(data.adventures)) {
-                  setFilteredAdventures(data.adventures);
-                } else {
-                  console.warn('No adventures in response:', data);
+            const fetchKey = `${gmOptionIdToUse}:${conventionOption.id}`;
+            if (lastFetchedAdventuresKeyRef.current === fetchKey) {
+              // Already fetched for this GM+convention; skip to avoid re-render loop
+            } else {
+              lastFetchedAdventuresKeyRef.current = fetchKey;
+              fetch(`/api/survey/adventures-by-gm?gm_option_id=${gmOptionIdToUse}&convention_option_id=${conventionOption.id}`)
+                .then(res => {
+                  if (!res.ok) {
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                  }
+                  return res.json();
+                })
+                .then(data => {
+                  if (data.adventures && Array.isArray(data.adventures)) {
+                    setFilteredAdventures(data.adventures);
+                  } else {
+                    setFilteredAdventures([]);
+                  }
+                })
+                .catch(err => {
+                  console.error('Error fetching adventures by GM and Convention:', err);
                   setFilteredAdventures([]);
-                }
-              })
-              .catch(err => {
-                console.error('Error fetching adventures by GM and Convention:', err);
-                setFilteredAdventures([]);
-              });
+                });
+            }
           } else {
             // Try by convention value
             console.log('Fetching adventures by GM option ID and convention value:', gmOptionIdToUse, selectedConvention);
@@ -444,10 +490,11 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         }
       } else if (!answers[gmQuestion?.id || -1] && selectedGMOptionId) {
         // GM answer was cleared, clear adventures
+        lastFetchedAdventuresKeyRef.current = null;
         setFilteredAdventures([]);
       }
     }
-  }, [survey, answers, selectedGMOptionId, filteredGMs]);
+  }, [survey, answers, selectedGMOptionId, filteredGMs, isOnRatingQuestion]);
 
   const handleAnswer = (questionId: number, value: any) => {
     // Handle GM selection - find GM question and check if this is it
@@ -501,21 +548,13 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         }
       }
       
-      // Clear adventure answer when GM changes
+      // Clear adventure and set GM answer in one update so neither is lost
       const adventureQuestion = survey?.questions.find(q => q.question_text === 'What adventure did you play?');
-      if (adventureQuestion) {
-        setAnswers(prev => {
-          const newAnswers = { ...prev };
-          delete newAnswers[adventureQuestion.id];
-          return newAnswers;
-        });
-      }
-      
-      // Still save the GM answer normally, then return
-      setAnswers(prev => ({
-        ...prev,
-        [questionId]: value
-      }));
+      setAnswers(prev => {
+        const next = { ...prev, [questionId]: value };
+        if (adventureQuestion) delete next[adventureQuestion.id];
+        return next;
+      });
       return;
     }
     
@@ -544,7 +583,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   const handleNext = async () => {
     // Check if we're on the recommendation question (Q6)
     const recommendationQuestion = survey?.questions.find(q => q.display_order === 6);
-    const currentQ = visibleQuestions[currentQuestion];
+    const currentQ = effectiveVisibleQuestions[currentQuestion];
     
     // If we just answered the recommendation question, submit survey and show coupon page
     if (recommendationQuestion && currentQ?.id === recommendationQuestion.id && answers[recommendationQuestion.id] !== undefined && answers[recommendationQuestion.id] !== null && answers[recommendationQuestion.id] !== '' && !showCouponPage && !responseId) {
@@ -555,10 +594,10 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
     
     // Normal next behavior
-    if (visibleQuestions && currentQuestion < visibleQuestions.length - 1) {
+    if (effectiveVisibleQuestions.length > 0 && currentQuestion < effectiveVisibleQuestions.length - 1) {
       setCurrentQuestion(prev => {
         const next = prev + 1;
-        return Math.min(next, visibleQuestions.length - 1);
+        return Math.min(next, effectiveVisibleQuestions.length - 1);
       });
     }
   };
@@ -819,28 +858,13 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
   };
 
-  // Debug logging - MUST be before any early returns (React hooks rule)
+  // Adjust current question index when skipToGMQuestions changes. Skip when on rating question to prevent loop.
   useEffect(() => {
-    if (visibleQuestions.length > 0 && survey && !submitted) {
-      const safeCurrentQuestion = Math.min(Math.max(0, currentQuestion), Math.max(0, visibleQuestions.length - 1));
-      const question = visibleQuestions[safeCurrentQuestion];
-      console.log('Survey state:', {
-        currentQuestion,
-        safeCurrentQuestion,
-        visibleQuestionsLength: visibleQuestions.length,
-        isLastQuestion: safeCurrentQuestion === visibleQuestions.length - 1,
-        questionText: question?.question_text,
-        questionDisplayOrder: question?.display_order
-      });
-    }
-  }, [currentQuestion, visibleQuestions.length, visibleQuestions, survey, submitted]);
-
-  // Adjust current question index when skipToGMQuestions changes
-  useEffect(() => {
+    if (loopFrozenRef.current || isOnRatingQuestion) return;
     if (skipToGMQuestions && visibleQuestions.length > 0) {
       setCurrentQuestion(0);
     }
-  }, [skipToGMQuestions, visibleQuestions.length]);
+  }, [skipToGMQuestions, visibleQuestions.length, isOnRatingQuestion]);
 
   if (loading) {
     return (
@@ -850,10 +874,19 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     );
   }
 
-  if (!survey) {
+  if (loadError || !survey) {
     return (
       <div className="container">
-        <div>Survey not found</div>
+        <div style={{ textAlign: 'center', padding: '2rem' }}>
+          <p>{loadError || 'Survey not found'}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{ marginTop: '1rem', padding: '0.5rem 1rem', cursor: 'pointer' }}
+          >
+            Refresh page
+          </button>
+        </div>
       </div>
     );
   }
@@ -869,24 +902,46 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     );
   }
 
-  if (visibleQuestions.length === 0) {
+  if (effectiveVisibleQuestions.length === 0) {
     return (
       <div className="container">
-        <div>Loading questions...</div>
+        <div style={{ textAlign: 'center', padding: '2rem' }}>
+          <p>No questions available for this survey.</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{ marginTop: '1rem', padding: '0.5rem 1rem', cursor: 'pointer' }}
+          >
+            Refresh page
+          </button>
+        </div>
       </div>
     );
   }
 
-  // Safety check - ensure currentQuestion is valid
-  const safeCurrentQuestion = Math.min(Math.max(0, currentQuestion), Math.max(0, visibleQuestions.length - 1));
-  const question = visibleQuestions[safeCurrentQuestion];
-  
+  // Safety check - ensure currentQuestion is valid and we have a question (no holes in array)
+  const safeCurrentQuestion = Math.min(Math.max(0, currentQuestion), Math.max(0, effectiveVisibleQuestions.length - 1));
+  const question = effectiveVisibleQuestions[safeCurrentQuestion] ?? effectiveVisibleQuestions[0];
+
   if (!question) {
-    return <div>Loading question...</div>;
+    return (
+      <div className="container">
+        <div style={{ textAlign: 'center', padding: '2rem' }}>
+          <p>Unable to load this question.</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{ marginTop: '1rem', padding: '0.5rem 1rem', cursor: 'pointer' }}
+          >
+            Refresh page
+          </button>
+        </div>
+      </div>
+    );
   }
   
-  const progress = ((safeCurrentQuestion + 1) / visibleQuestions.length) * 100;
-  const isLastQuestion = safeCurrentQuestion === visibleQuestions.length - 1;
+  const progress = ((safeCurrentQuestion + 1) / effectiveVisibleQuestions.length) * 100;
+  const isLastQuestion = safeCurrentQuestion === effectiveVisibleQuestions.length - 1;
   
   // Improved validation: check if answer exists and is not empty
   // For rating questions, numbers (including 0) are valid, so we check for undefined/null/empty string
@@ -1212,11 +1267,11 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     e.stopPropagation();
     
     // Only submit if we're actually on the last question
-    const isActuallyLast = safeCurrentQuestion === visibleQuestions.length - 1;
+    const isActuallyLast = safeCurrentQuestion === effectiveVisibleQuestions.length - 1;
     
     console.log('Form submit attempt:', {
       safeCurrentQuestion,
-      visibleQuestionsLength: visibleQuestions.length,
+      visibleQuestionsLength: effectiveVisibleQuestions.length,
       isActuallyLast,
       isSubmitting: isSubmittingRef.current,
       questionText: question?.question_text
@@ -1509,7 +1564,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               e.stopPropagation();
               console.log('Submit button clicked', { 
                 safeCurrentQuestion, 
-                visibleQuestionsLength: visibleQuestions.length,
+                visibleQuestionsLength: effectiveVisibleQuestions.length,
                 questionId: question.id,
                 questionText: question.question_text,
                 answerValue: answers[question.id],
@@ -1517,7 +1572,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                 isRequired: question.is_required,
                 isSubmitting: isSubmittingRef.current
               });
-              if (safeCurrentQuestion === visibleQuestions.length - 1 && !isSubmittingRef.current && canProceed) {
+              if (safeCurrentQuestion === effectiveVisibleQuestions.length - 1 && !isSubmittingRef.current && canProceed) {
                 handleSubmit(e as any);
               } else if (!canProceed) {
                 console.warn('Cannot submit: question not answered', {
