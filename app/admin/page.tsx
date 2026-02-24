@@ -63,6 +63,7 @@ export default function AdminPanel() {
   const qrCodeRef = useRef<HTMLDivElement>(null);
   const [gmAdventures, setGmAdventures] = useState<any>(null);
   const [selectedGMOptionId, setSelectedGMOptionId] = useState<number | null>(null);
+  const [linkCopiedFeedback, setLinkCopiedFeedback] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -144,6 +145,7 @@ export default function AdminPanel() {
                 : conv
             )
           : [];
+        formattedConventions.sort((a: any, b: any) => (a.display || a.value || '').localeCompare(b.display || b.value || '', undefined, { sensitivity: 'base' }));
         setConventions(formattedConventions);
       } else {
         const errorText = await res.text();
@@ -742,7 +744,7 @@ export default function AdminPanel() {
                 <div key={question.id} style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px' }}>
                   <h3 style={{ marginBottom: '1rem', color: '#333' }}>{question.question_text}</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {question.options?.map(option => (
+                    {question.options?.slice().sort((a: any, b: any) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map(option => (
                       <div key={option.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         {editingOption?.optionId === option.id ? (
                           <>
@@ -839,7 +841,7 @@ export default function AdminPanel() {
                         // Get conventions from the convention question options (same as Dropdown Options tab)
                         const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
                         if (conventionQuestion && conventionQuestion.options) {
-                          return conventionQuestion.options.map(option => (
+                          return conventionQuestion.options.slice().sort((a: any, b: any) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map(option => (
                             <option key={option.id} value={option.option_value || option.option_text}>
                               {option.option_text}
                             </option>
@@ -867,7 +869,7 @@ export default function AdminPanel() {
                 </div>
               </div>
               <div style={{ overflowX: 'auto' }}>
-                {Object.entries(getGroupedResponses()).map(([category, categoryResponses]) => (
+                {Object.entries(getGroupedResponses()).sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' })).map(([category, categoryResponses]) => (
                   <div key={category} style={{ marginBottom: '2rem' }}>
                     <div style={{
                       padding: '1rem',
@@ -973,7 +975,11 @@ export default function AdminPanel() {
                   </thead>
                   <tbody>
                     {gmInterestData.length > 0 ? (
-                      gmInterestData.map((gm: any) => (
+                      gmInterestData.slice().sort((a: any, b: any) => {
+                        const aName = (a.last_name || '').localeCompare(b.last_name || '', undefined, { sensitivity: 'base' });
+                        if (aName !== 0) return aName;
+                        return (a.first_name || '').localeCompare(b.first_name || '', undefined, { sensitivity: 'base' });
+                      }).map((gm: any) => (
                         <tr key={gm.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
                           <td style={{ padding: '0.75rem' }}>{gm.id}</td>
                           <td style={{ padding: '0.75rem' }}>{gm.response_id}</td>
@@ -1023,7 +1029,7 @@ export default function AdminPanel() {
                       // Get conventions from the convention question options (same as Dropdown Options tab)
                       const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
                       if (conventionQuestion && conventionQuestion.options) {
-                        return conventionQuestion.options.map(option => (
+                        return conventionQuestion.options.slice().sort((a: any, b: any) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map(option => (
                           <option key={option.id} value={option.option_value || option.option_text}>
                             {option.option_text}
                           </option>
@@ -1133,7 +1139,7 @@ export default function AdminPanel() {
                             <h4 style={{ marginBottom: '0.75rem', fontSize: '1rem', fontWeight: 600 }}>Associated Conventions:</h4>
                             {selectedGM.conventions && selectedGM.conventions.length > 0 ? (
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                                {selectedGM.conventions.map((convention: any) => (
+                                {selectedGM.conventions.slice().sort((a: any, b: any) => (a.option_text || '').localeCompare(b.option_text || '', undefined, { sensitivity: 'base' })).map((convention: any) => (
                                   <div
                                     key={convention.id}
                                     style={{
@@ -1208,7 +1214,7 @@ export default function AdminPanel() {
 
                         {/* Step 2: Associate with Adventures (grouped by convention) */}
                         {selectedGM.conventions && selectedGM.conventions.length > 0 ? (
-                          selectedGM.conventions.map((convention: any) => {
+                          selectedGM.conventions.slice().sort((a: any, b: any) => (a.option_text || '').localeCompare(b.option_text || '', undefined, { sensitivity: 'base' })).map((convention: any) => {
                             // Handle both string and number keys
                             const conventionKey = convention.id;
                             const conventionData = selectedGM.adventuresByConvention?.[conventionKey] || 
@@ -1228,7 +1234,7 @@ export default function AdminPanel() {
                                 <div style={{ marginBottom: '1rem' }}>
                                   {conventionAdventures.length > 0 ? (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                                      {conventionAdventures.map((adventure: any) => (
+                                      {conventionAdventures.slice().sort((a: any, b: any) => (a.option_text || '').localeCompare(b.option_text || '', undefined, { sensitivity: 'base' })).map((adventure: any) => (
                                         <div
                                           key={adventure.id}
                                           style={{
@@ -1353,7 +1359,7 @@ export default function AdminPanel() {
                         // Get conventions from the convention question options (same as Dropdown Options tab)
                         const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
                         if (conventionQuestion && conventionQuestion.options) {
-                          return conventionQuestion.options.map(option => (
+                          return conventionQuestion.options.slice().sort((a: any, b: any) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map(option => (
                             <option key={option.id} value={option.option_value || option.option_text}>
                               {option.option_text}
                             </option>
@@ -1381,7 +1387,8 @@ export default function AdminPanel() {
                           
                           // Copy to clipboard
                           navigator.clipboard.writeText(surveyLink).then(() => {
-                            alert(`Survey link copied to clipboard!\n\n${surveyLink}`);
+                            setLinkCopiedFeedback(true);
+                            setTimeout(() => setLinkCopiedFeedback(false), 2500);
                           }).catch(() => {
                             // Fallback: show in prompt
                             prompt('Copy this survey link:', surveyLink);
@@ -1400,6 +1407,11 @@ export default function AdminPanel() {
                       >
                         Generate & Copy Link
                       </button>
+                      {linkCopiedFeedback && (
+                        <span style={{ alignSelf: 'center', color: '#27ae60', fontWeight: 600, fontSize: '0.9rem' }}>
+                          Link copied
+                        </span>
+                      )}
                       <button
                         onClick={() => {
                           const select = document.getElementById('convention-select') as HTMLSelectElement;

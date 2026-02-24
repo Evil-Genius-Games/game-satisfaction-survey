@@ -39,6 +39,9 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   const lastFetchedGMsKeyRef = useRef<string | null>(null);
   const ratingQuestionRenderCountRef = useRef(0);
   const loopFrozenRef = useRef(false);
+  const pinnedRatingDisplayRef = useRef<{ question: { id: number; question_text?: string; question_type?: string; [key: string]: unknown }; index: number; listLength: number } | null>(null);
+  const ratingQuestionListCacheRef = useRef<any[] | null>(null);
+
 
   // Generate a temporary coupon code for QR code display
   const tempCouponCode = useMemo(() => {
@@ -152,19 +155,34 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       ? visibleQuestions
       : (survey?.questions?.length ? (survey.questions ?? []) : []);
 
-  const safeCurrentIndex = Math.min(Math.max(0, currentQuestion), Math.max(0, (effectiveVisibleQuestions?.length ?? 1) - 1));
-  const currentQuestionObj = effectiveVisibleQuestions?.[safeCurrentIndex];
+  // Use cached list when on rating question so the list cannot alternate and cause effect loops
+  const cachedList = ratingQuestionListCacheRef.current;
+  const cIdx = cachedList?.length ? Math.min(currentQuestion, cachedList.length - 1) : -1;
+  const cQ = cIdx >= 0 && cachedList ? cachedList[cIdx] : null;
+  const cText = (cQ?.question_text ?? '').toLowerCase();
+  const cachedIsRating = cQ && (cQ.question_type === 'rating' || (cText.includes('rate') && (cText.includes('gm') || cText.includes('1-5') || cText.includes('1 to 5'))));
+  const useCachedList = !!(cachedList?.length && cachedIsRating);
+  const displayQuestionList = useCachedList ? cachedList : effectiveVisibleQuestions;
+
+  const safeCurrentIndex = Math.min(Math.max(0, currentQuestion), Math.max(0, (displayQuestionList?.length ?? 1) - 1));
+  const currentQuestionObj = displayQuestionList?.[safeCurrentIndex];
   const qText = (currentQuestionObj?.question_text ?? '').toLowerCase();
   const isOnRatingQuestion =
     currentQuestionObj?.question_type === 'rating' ||
     (qText.includes('rate') && (qText.includes('gm') || qText.includes('1-5') || qText.includes('1 to 5')));
 
   if (isOnRatingQuestion) {
+    ratingQuestionListCacheRef.current = displayQuestionList;
     ratingQuestionRenderCountRef.current += 1;
     if (ratingQuestionRenderCountRef.current > 12) loopFrozenRef.current = true;
+    if (currentQuestionObj && (!pinnedRatingDisplayRef.current || pinnedRatingDisplayRef.current.question.id !== currentQuestionObj.id)) {
+      pinnedRatingDisplayRef.current = { question: currentQuestionObj, index: safeCurrentIndex, listLength: displayQuestionList.length };
+    }
   } else {
+    ratingQuestionListCacheRef.current = null;
     ratingQuestionRenderCountRef.current = 0;
     loopFrozenRef.current = false;
+    pinnedRatingDisplayRef.current = null;
   }
 
   // Adjust current question index only when visible questions LENGTH changes. Skip when on rating question or loop frozen to prevent loop.
@@ -254,22 +272,22 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               if (data.gms && Array.isArray(data.gms)) {
                 setFilteredGMs(data.gms);
               } else {
-              // If no GMs in response, fall back to all GMs from question options
-              const gmQuestion = survey?.questions.find(q => 
-                (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
-                ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
-              );
-              if (gmQuestion && gmQuestion.options) {
-                setFilteredGMs(gmQuestion.options.map((opt: any) => ({
-                  id: opt.id,
-                  option_text: opt.option_text,
-                  option_value: opt.option_value
-                })));
-              } else {
-                setFilteredGMs([]);
+                // If no GMs in response, fall back to all GMs from question options
+                const gmQuestion = survey?.questions.find(q =>
+                  (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
+                  ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
+                );
+                if (gmQuestion && gmQuestion.options) {
+                  setFilteredGMs(gmQuestion.options.map((opt: any) => ({
+                    id: opt.id,
+                    option_text: opt.option_text,
+                    option_value: opt.option_value
+                  })));
+                } else {
+                  setFilteredGMs([]);
+                }
               }
-            }
-          })
+            })
             .catch(err => {
               console.error('Error fetching GMs by convention:', err);
               const gmQuestion = survey?.questions.find(q =>
@@ -493,7 +511,6 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         lastFetchedAdventuresKeyRef.current = null;
         setFilteredAdventures([]);
       }
-    }
   }, [survey, answers, selectedGMOptionId, filteredGMs, isOnRatingQuestion]);
 
   const handleAnswer = (questionId: number, value: any) => {
@@ -919,9 +936,15 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     );
   }
 
-  // Safety check - ensure currentQuestion is valid and we have a question (no holes in array)
-  const safeCurrentQuestion = Math.min(Math.max(0, currentQuestion), Math.max(0, effectiveVisibleQuestions.length - 1));
-  const question = effectiveVisibleQuestions[safeCurrentQuestion] ?? effectiveVisibleQuestions[0];
+  // When on rating question, use pinned display so the UI cannot flicker even if state keeps changing
+  const usePinnedRating = isOnRatingQuestion && pinnedRatingDisplayRef.current;
+  const safeCurrentQuestion = usePinnedRating
+    ? pinnedRatingDisplayRef.current!.index
+    : Math.min(Math.max(0, currentQuestion), Math.max(0, effectiveVisibleQuestions.length - 1));
+  const question = usePinnedRating
+    ? pinnedRatingDisplayRef.current!.question
+    : (displayQuestionList[safeCurrentQuestion] ?? displayQuestionList[0]);
+  const displayListLength = usePinnedRating ? pinnedRatingDisplayRef.current!.listLength : displayQuestionList.length;
 
   if (!question) {
     return (
@@ -940,8 +963,8 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     );
   }
   
-  const progress = ((safeCurrentQuestion + 1) / effectiveVisibleQuestions.length) * 100;
-  const isLastQuestion = safeCurrentQuestion === effectiveVisibleQuestions.length - 1;
+  const progress = ((safeCurrentQuestion + 1) / displayListLength) * 100;
+  const isLastQuestion = safeCurrentQuestion === displayListLength - 1;
   
   // Improved validation: check if answer exists and is not empty
   // For rating questions, numbers (including 0) are valid, so we check for undefined/null/empty string
@@ -1267,11 +1290,11 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     e.stopPropagation();
     
     // Only submit if we're actually on the last question
-    const isActuallyLast = safeCurrentQuestion === effectiveVisibleQuestions.length - 1;
-    
+    const isActuallyLast = safeCurrentQuestion === displayListLength - 1;
+
     console.log('Form submit attempt:', {
       safeCurrentQuestion,
-      visibleQuestionsLength: effectiveVisibleQuestions.length,
+      visibleQuestionsLength: displayListLength,
       isActuallyLast,
       isSubmitting: isSubmittingRef.current,
       questionText: question?.question_text
@@ -1403,7 +1426,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
         {question.question_type === 'multiple_choice' && question.options && (
           <div className="question-options">
-            {question.options.map((option) => (
+            {[...question.options].sort((a, b) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map((option: QuestionOption) => (
               <label key={option.id} className="option-item">
                 <input
                   type="checkbox"
@@ -1426,7 +1449,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
         {question.question_type === 'single_choice' && question.options && (
           <div className="question-options">
-            {question.options.map((option) => (
+            {[...question.options].sort((a, b) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map((option: QuestionOption) => (
               <label key={option.id} className="option-item">
                 <input
                   type="radio"
@@ -1464,7 +1487,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                 
                 if ((hasGMOptionId || gmAnswered) && filteredAdventures.length > 0) {
                   // Show only adventures associated with the selected GM
-                  return filteredAdventures.map((adventure: any) => (
+                  return [...filteredAdventures].sort((a: any, b: any) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map((adventure: any) => (
                     <option key={adventure.id} value={adventure.option_value || adventure.option_text}>
                       {adventure.option_text}
                     </option>
@@ -1491,7 +1514,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               if (isGMQuestion) {
                 // If convention filtering is active, use filteredGMs, otherwise use all GM options
                 const gmsToShow = filteredGMs.length > 0 ? filteredGMs : question.options || [];
-                return gmsToShow.map((gm: any) => {
+                return [...gmsToShow].sort((a: any, b: any) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map((gm: any) => {
                   const gmValue = gm.option_value || gm.option_text;
                   const gmId = gm.id;
                   return (
@@ -1503,7 +1526,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               }
               
               // Default: show all options
-              return question.options.map((option) => (
+              return [...question.options].sort((a, b) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map((option: QuestionOption) => (
                 <option key={option.id} value={option.option_value || option.option_text}>
                   {option.option_text}
                 </option>
@@ -1572,7 +1595,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                 isRequired: question.is_required,
                 isSubmitting: isSubmittingRef.current
               });
-              if (safeCurrentQuestion === effectiveVisibleQuestions.length - 1 && !isSubmittingRef.current && canProceed) {
+              if (safeCurrentQuestion === displayListLength - 1 && !isSubmittingRef.current && canProceed) {
                 handleSubmit(e as any);
               } else if (!canProceed) {
                 console.warn('Cannot submit: question not answered', {
