@@ -120,4 +120,19 @@ describe('createResponse duplicate-combination prevention', () => {
     expect(mockState.queries.some((query) => query.sql.includes('INSERT INTO responses'))).toBe(false);
     expect(mockState.queries.some((query) => query.sql === 'ROLLBACK')).toBe(true);
   });
+
+  it('does not reject a response based only on the shared network and browser participant key', async () => {
+    mockState.duplicateResponseId = 456;
+
+    const responseId = await createResponse(1, comboAnswers, {
+      participantKey: 'shared-convention-network-key',
+      ipAddress: '203.0.113.10',
+      userAgent: 'Shared Browser',
+    });
+
+    expect(responseId).toBe(789);
+    expect(mockState.queries.some((query) => query.sql.includes("r.metadata->>'participant_key'"))).toBe(false);
+    expect(mockState.queries.some((query) => query.sql.includes('INSERT INTO responses'))).toBe(true);
+    expect(mockState.queries.some((query) => query.sql === 'COMMIT')).toBe(true);
+  });
 });

@@ -158,36 +158,32 @@ async function findDuplicateCombination(
   client: PoolClient,
   surveyId: number,
   participantId: string | null,
-  participantKey: string | null,
+  _participantKey: string | null,
   combination: SurveyCombination & { questionIds: CoreQuestionIds }
 ) {
-  if (!participantId && !participantKey) return null;
+  if (!participantId) return null;
 
   const result = await client.query(
     `SELECT r.id
        FROM responses r
        JOIN answers convention_answer
          ON convention_answer.response_id = r.id
-        AND convention_answer.question_id = $4
+        AND convention_answer.question_id = $3
        JOIN answers gm_answer
          ON gm_answer.response_id = r.id
-        AND gm_answer.question_id = $5
+        AND gm_answer.question_id = $4
        JOIN answers adventure_answer
          ON adventure_answer.response_id = r.id
-        AND adventure_answer.question_id = $6
+        AND adventure_answer.question_id = $5
       WHERE r.survey_id = $1
-        AND (
-          ($2::text IS NOT NULL AND r.metadata->>'participant_id' = $2)
-          OR ($3::text IS NOT NULL AND r.metadata->>'participant_key' = $3)
-        )
-        AND TRIM(COALESCE(NULLIF(convention_answer.answer_value, ''), convention_answer.answer_text, '')) = $7
-        AND TRIM(COALESCE(NULLIF(gm_answer.answer_value, ''), gm_answer.answer_text, '')) = $8
-        AND TRIM(COALESCE(NULLIF(adventure_answer.answer_value, ''), adventure_answer.answer_text, '')) = $9
+        AND r.metadata->>'participant_id' = $2
+        AND TRIM(COALESCE(NULLIF(convention_answer.answer_value, ''), convention_answer.answer_text, '')) = $6
+        AND TRIM(COALESCE(NULLIF(gm_answer.answer_value, ''), gm_answer.answer_text, '')) = $7
+        AND TRIM(COALESCE(NULLIF(adventure_answer.answer_value, ''), adventure_answer.answer_text, '')) = $8
       LIMIT 1`,
     [
       surveyId,
       participantId,
-      participantKey,
       combination.questionIds.conventionQuestionId,
       combination.questionIds.gmQuestionId,
       combination.questionIds.adventureQuestionId,
@@ -281,6 +277,7 @@ export async function createResponse(
 
     const metadata = {
       participant_id: participantId,
+      // Kept for abuse forensics only. It must not block submissions because many convention players can share the same network/browser fingerprint.
       participant_key: participantKey,
       survey_combo: surveyCombination ? {
         convention: surveyCombination.convention,
