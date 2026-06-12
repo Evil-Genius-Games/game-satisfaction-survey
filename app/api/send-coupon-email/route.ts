@@ -1,20 +1,56 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import pool from '@/lib/db';
+import { verifyResponseToken } from '@/lib/responseTokens';
+import { isValidEmail, normalizeOptionalText } from '@/lib/surveyValidation';
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { email, couponCode } = body;
+    const { email, couponCode, responseId, responseToken } = body;
+    const normalizedEmail = normalizeOptionalText(email);
+    const normalizedCouponCode = normalizeOptionalText(couponCode);
+    const numericResponseId = Number(responseId);
     
-    if (!email || !email.includes('@')) {
+    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
       return NextResponse.json({ error: 'Invalid email address' }, { status: 400 });
     }
     
-    if (!couponCode) {
+    if (!normalizedCouponCode) {
       return NextResponse.json({ error: 'Coupon code is required' }, { status: 400 });
     }
+
+    if (!Number.isInteger(numericResponseId) || numericResponseId <= 0) {
+      return NextResponse.json({ error: 'responseId is required' }, { status: 400 });
+    }
+
+    const responseResult = await pool.query(
+      'SELECT id, survey_id FROM responses WHERE id = $1',
+      [numericResponseId]
+    );
+
+    if (responseResult.rows.length === 0) {
+      return NextResponse.json({ error: 'Response not found' }, { status: 404 });
+    }
+
+    const tokenValidation = verifyResponseToken(responseToken, {
+      responseId: numericResponseId,
+      surveyId: Number(responseResult.rows[0].survey_id),
+    });
+
+    if (!tokenValidation.ok) {
+      return NextResponse.json({ error: tokenValidation.error }, { status: 403 });
+    }
     
-    // Check if Resend API key is configured
     if (!process.env.RESEND_API_KEY) {
       console.error('RESEND_API_KEY is not configured');
       return NextResponse.json({ 
@@ -22,16 +58,13 @@ export async function POST(request: Request) {
       }, { status: 500 });
     }
 
-    // Initialize Resend with API key (lazy initialization)
     const resend = new Resend(process.env.RESEND_API_KEY);
-
-    // Get the from email address (default to noreply if not set)
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@evilgeniusgames.com';
+    const safeCouponCode = escapeHtml(normalizedCouponCode);
     
-    // Send email using Resend
     const { data, error } = await resend.emails.send({
       from: fromEmail,
-      to: email,
+      to: normalizedEmail,
       subject: 'Your Coupon Code - Evil Genius Games',
       html: `
         <!DOCTYPE html>
@@ -52,7 +85,7 @@ export async function POST(request: Request) {
               <div style="background: white; border: 2px solid #667eea; border-radius: 8px; padding: 20px; text-align: center; margin: 30px 0;">
                 <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">Your Coupon Code:</p>
                 <h2 style="margin: 0; font-size: 32px; color: #667eea; letter-spacing: 3px; font-family: 'Courier New', monospace;">
-                  ${couponCode}
+                  ${safeCouponCode}
                 </h2>
               </div>
               <p style="font-size: 14px; color: #666; margin-top: 20px;">
@@ -69,7 +102,7 @@ export async function POST(request: Request) {
       text: `
 Thank you for completing our survey!
 
-Your Coupon Code: ${couponCode}
+Your Coupon Code: ${normalizedCouponCode}
 
 Use this code at checkout to redeem your discount. We hope you enjoy your purchase!
 
@@ -86,7 +119,7 @@ The Evil Genius Games Team
       }, { status: 500 });
     }
 
-    console.log('Email sent successfully to:', email, 'with coupon code:', couponCode);
+    console.log('Email sent successfully', { emailId: data?.id });
     
     return NextResponse.json({ 
       success: true, 
@@ -101,4 +134,3 @@ The Evil Genius Games Team
     }, { status: 500 });
   }
 }
-

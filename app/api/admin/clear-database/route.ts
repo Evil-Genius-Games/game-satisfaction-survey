@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireDangerousAdminAction } from '@/lib/adminGuards';
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
+  const guardResponse = requireDangerousAdminAction(request, 'clear-database');
+  if (guardResponse) return guardResponse;
+
   try {
     const client = await pool.connect();
     try {

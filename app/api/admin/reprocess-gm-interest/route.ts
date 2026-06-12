@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireDangerousAdminAction } from '@/lib/adminGuards';
 
-export async function POST() {
+export async function POST(request: Request) {
+  const guardResponse = requireDangerousAdminAction(request, 'reprocess-gm-interest');
+  if (guardResponse) return guardResponse;
+
   try {
     // Get GM question IDs
     const gmQuestionsResult = await pool.query(

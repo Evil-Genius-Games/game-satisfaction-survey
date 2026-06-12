@@ -1,39 +1,65 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { verifyResponseToken } from '@/lib/responseTokens';
+import { isValidEmail, normalizeOptionalText } from '@/lib/surveyValidation';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { responseId, couponCode, emailAddress } = body;
+    const { responseId, responseToken, couponCode, emailAddress } = body;
+    const numericResponseId = Number(responseId);
+    const normalizedCouponCode = normalizeOptionalText(couponCode);
+    const normalizedEmail = normalizeOptionalText(emailAddress);
     
-    if (!responseId || !couponCode) {
+    if (!Number.isInteger(numericResponseId) || numericResponseId <= 0 || !normalizedCouponCode) {
       return NextResponse.json({ error: 'responseId and couponCode are required' }, { status: 400 });
     }
 
-    // Check if delivery already exists
+    if (normalizedEmail && !isValidEmail(normalizedEmail)) {
+      return NextResponse.json({ error: 'A valid email address is required' }, { status: 400 });
+    }
+
+    const responseResult = await pool.query(
+      'SELECT id, survey_id FROM responses WHERE id = $1',
+      [numericResponseId]
+    );
+
+    if (responseResult.rows.length === 0) {
+      return NextResponse.json({ error: 'Response not found' }, { status: 404 });
+    }
+
+    const surveyId = Number(responseResult.rows[0].survey_id);
+    const tokenValidation = verifyResponseToken(responseToken, {
+      responseId: numericResponseId,
+      surveyId,
+    });
+
+    if (!tokenValidation.ok) {
+      return NextResponse.json({ error: tokenValidation.error }, { status: 403 });
+    }
+
     const existing = await pool.query(
       'SELECT * FROM coupon_deliveries WHERE response_id = $1',
-      [responseId]
+      [numericResponseId]
     );
 
     let result;
     if (existing.rows.length > 0) {
-      // Update existing record
       result = await pool.query(
         `UPDATE coupon_deliveries 
-         SET email_sent = COALESCE($3, email_sent), 
-             email_address = COALESCE($4, email_address)
+         SET coupon_code = COALESCE($2, coupon_code),
+             email_address = COALESCE($3, email_address),
+             delivered_at = CURRENT_TIMESTAMP
          WHERE response_id = $1
          RETURNING *`,
-        [responseId, couponCode, emailAddress ? true : undefined, emailAddress || null]
+        [numericResponseId, normalizedCouponCode, normalizedEmail]
       );
     } else {
-      // Insert new record
       result = await pool.query(
-        `INSERT INTO coupon_deliveries (response_id, coupon_code, email_sent, email_address)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO coupon_deliveries (response_id, coupon_code, email_address)
+         VALUES ($1, $2, $3)
          RETURNING *`,
-        [responseId, couponCode, !!emailAddress, emailAddress || null]
+        [numericResponseId, normalizedCouponCode, normalizedEmail]
       );
     }
 
@@ -46,4 +72,3 @@ export async function POST(request: Request) {
     }, { status: 500 });
   }
 }
-

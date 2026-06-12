@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireDangerousAdminAction } from '@/lib/adminGuards';
 
-export async function POST() {
+export async function POST(request: Request) {
+  const guardResponse = requireDangerousAdminAction(request, 'remove-gm-answers');
+  if (guardResponse) return guardResponse;
+
   try {
     // Get GM question IDs (display_order 8, 9, 10)
     const gmQuestionsResult = await pool.query(

@@ -7,7 +7,112 @@ interface SurveyData {
   id: number;
   title: string;
   description: string | null;
-  questions: (Question & { options?: QuestionOption[] })[];
+  questions: SurveyQuestion[];
+}
+
+type SurveyQuestion = Question & { options?: QuestionOption[] };
+
+const QUESTION_KEYS = {
+  convention: 'What convention are you attending?',
+  adventure: 'What adventure did you play?',
+} as const;
+
+const STANDARD_SURVEY_END_ORDER = 7;
+const GM_INTEREST_ORDER = 8;
+const GM_FIRST_NAME_ORDER = 9;
+const GM_LAST_NAME_ORDER = 10;
+const GM_EMAIL_ORDER = 11;
+
+function questionOrder(question: { display_order?: number | null }) {
+  return Number(question.display_order ?? 0);
+}
+
+function findQuestionByText(questions: SurveyQuestion[] | undefined, text: string) {
+  return questions?.find((question) => question.question_text === text);
+}
+
+function findConventionQuestion(questions: SurveyQuestion[] | undefined) {
+  return findQuestionByText(questions, QUESTION_KEYS.convention);
+}
+
+function findAdventureQuestion(questions: SurveyQuestion[] | undefined) {
+  return findQuestionByText(questions, QUESTION_KEYS.adventure);
+}
+
+function isGMChoiceQuestion(question: SurveyQuestion) {
+  const text = question.question_text.toLowerCase();
+  return (text.includes('gm') || text.includes('game master')) &&
+    ['dropdown', 'single_choice', 'multiple_choice'].includes(question.question_type);
+}
+
+function findGMChoiceQuestion(questions: SurveyQuestion[] | undefined) {
+  return questions?.find(isGMChoiceQuestion);
+}
+
+function findQuestionByOrder(questions: SurveyQuestion[] | undefined, displayOrder: number) {
+  return questions?.find((question) => questionOrder(question) === displayOrder);
+}
+
+function getRatingMax(question: SurveyQuestion) {
+  const maxRule = question.validation_rules?.max;
+  const parsedMax = typeof maxRule === 'number' ? maxRule : Number(maxRule);
+
+  if (Number.isInteger(parsedMax) && parsedMax > 0 && parsedMax <= 20) {
+    return parsedMax;
+  }
+
+  const text = question.question_text.toLowerCase();
+  return text.includes('1 to 10') || text.includes('1-10') || text.includes('scale of 1 to 10') ? 10 : 5;
+}
+
+const PARTICIPANT_STORAGE_KEY = 'game-satisfaction-survey-participant-id';
+const COUPON_STORAGE_KEY = 'game-satisfaction-survey-issued-coupon';
+
+type SavedCoupon = {
+  couponCode: string;
+  responseId?: number;
+  responseToken?: string;
+};
+
+function createParticipantId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `participant-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getOrCreateParticipantId() {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const existingId = window.localStorage.getItem(PARTICIPANT_STORAGE_KEY);
+    if (existingId) return existingId;
+
+    const newId = createParticipantId();
+    window.localStorage.setItem(PARTICIPANT_STORAGE_KEY, newId);
+    return newId;
+  } catch (error) {
+    console.warn('Unable to persist survey participant identity:', error);
+    return createParticipantId();
+  }
+}
+
+function getSavedCoupon(): SavedCoupon | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const rawCoupon = window.localStorage.getItem(COUPON_STORAGE_KEY);
+    if (!rawCoupon) return null;
+
+    const parsed = JSON.parse(rawCoupon) as SavedCoupon;
+    if (!parsed?.couponCode || typeof parsed.couponCode !== 'string') return null;
+
+    return parsed;
+  } catch (error) {
+    console.warn('Unable to retrieve saved coupon code:', error);
+    return null;
+  }
 }
 
 export default function SurveyForm({ surveyId, preSelectedConvention }: { surveyId: number; preSelectedConvention?: string | null }) {
@@ -25,12 +130,15 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   const [emailAddress, setEmailAddress] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
   const [responseId, setResponseId] = useState<number | null>(null);
+  const [responseToken, setResponseToken] = useState<string | null>(null);
   const [couponDelivered, setCouponDelivered] = useState(false);
   const [conventionDisplayName, setConventionDisplayName] = useState<string | null>(null);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const isSubmittingRef = useRef(false);
   const [selectedGMName, setSelectedGMName] = useState<string | null>(null);
   const [selectedGMOptionId, setSelectedGMOptionId] = useState<number | null>(null);
   const [filteredAdventures, setFilteredAdventures] = useState<any[]>([]);
+  const [adventuresLoading, setAdventuresLoading] = useState(false);
   const [filteredGMs, setFilteredGMs] = useState<any[]>([]);
   const [selectedConventionOptionId, setSelectedConventionOptionId] = useState<number | null>(null);
   const previousConventionRef = useRef<string | null>(null);
@@ -50,6 +158,40 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     const randomNum = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
     return `${prefix}${randomNum}`;
   }, [couponCode]);
+  const retrievableCouponCode = couponCode || (responseId ? tempCouponCode : '');
+
+  const saveCouponForRetrieval = (code: string, id?: number | null, token?: string | null) => {
+    if (typeof window === 'undefined' || !code) return;
+
+    try {
+      window.localStorage.setItem(COUPON_STORAGE_KEY, JSON.stringify({
+        couponCode: code,
+        responseId: id ?? undefined,
+        responseToken: token ?? undefined,
+      }));
+    } catch (error) {
+      console.warn('Unable to save coupon for retrieval:', error);
+    }
+  };
+
+  const copyCouponCode = async (code = tempCouponCode) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  useEffect(() => {
+    const savedCoupon = getSavedCoupon();
+    if (!savedCoupon) return;
+
+    setCouponCode(savedCoupon.couponCode);
+    if (savedCoupon.responseId) setResponseId(savedCoupon.responseId);
+    if (savedCoupon.responseToken) setResponseToken(savedCoupon.responseToken);
+  }, []);
 
   // Auto-fill convention if pre-selected (run only when preSelectedConvention or survey changes to avoid re-run loops)
   useEffect(() => {
@@ -58,7 +200,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     if (preFilledConventionRef.current === key) return;
     preFilledConventionRef.current = key;
 
-    const conventionQuestion = survey.questions.find(q => q.question_text === 'What convention are you attending?');
+    const conventionQuestion = findConventionQuestion(survey.questions);
     if (!conventionQuestion?.options) return;
 
     let matchingOption = conventionQuestion.options.find(
@@ -102,37 +244,34 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   }, [preSelectedConvention, survey]);
 
   // Filter questions based on conditional logic
-  const order = (q: { display_order?: number | null }) => Number(q.display_order ?? 0);
+  const order = questionOrder;
 
   const visibleQuestions = useMemo(() => {
     if (!survey) return [];
     const questions = survey.questions ?? [];
     if (questions.length === 0) return [];
 
-    const gmInterestQuestion = questions.find(q => order(q) === 7);
+    const gmInterestQuestion = findQuestionByOrder(questions, GM_INTEREST_ORDER);
     const wantsToLearnGM = gmInterestQuestion && answers[gmInterestQuestion.id] === 'yes';
-    const conventionQuestion = questions.find(q => q.question_text === 'What convention are you attending?');
-    const adventureQuestion = questions.find(q => q.question_text === 'What adventure did you play?');
+    const conventionQuestion = findConventionQuestion(questions);
+    const adventureQuestion = findAdventureQuestion(questions);
 
     const filtered = questions.filter(q => {
       const o = order(q);
       if (skipToGMQuestions) {
-        return o >= 8 && o <= 10;
+        return o >= GM_FIRST_NAME_ORDER && o <= GM_EMAIL_ORDER;
       }
       if (preSelectedConvention && q.id === conventionQuestion?.id) {
         return false;
       }
-      if (o <= 7) return true;
-      if (o >= 8 && o <= 10) {
+      if (o <= GM_INTEREST_ORDER) return true;
+      if (o >= GM_FIRST_NAME_ORDER && o <= GM_EMAIL_ORDER) {
         return wantsToLearnGM;
       }
       return false;
     });
 
-    const gmQuestion = questions.find(q =>
-      (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
-      ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
-    );
+    const gmQuestion = findGMChoiceQuestion(questions);
 
     let result = [...filtered];
     if (gmQuestion && adventureQuestion && filtered.some(q => q.id === adventureQuestion.id)) {
@@ -143,7 +282,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       }
     }
     if (result.length === 0 && questions.length > 0) {
-      result = questions.filter(q => order(q) <= 7);
+      result = questions.filter(q => order(q) <= GM_INTEREST_ORDER);
       if (result.length === 0) result = [...questions];
     }
     return result;
@@ -170,6 +309,9 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   const isOnRatingQuestion =
     currentQuestionObj?.question_type === 'rating' ||
     (qText.includes('rate') && (qText.includes('gm') || qText.includes('1-5') || qText.includes('1 to 5')));
+  const isGMApplicationStep =
+    skipToGMQuestions ||
+    (currentQuestionObj ? questionOrder(currentQuestionObj) >= GM_FIRST_NAME_ORDER && questionOrder(currentQuestionObj) <= GM_EMAIL_ORDER : false);
 
   if (isOnRatingQuestion) {
     ratingQuestionListCacheRef.current = displayQuestionList;
@@ -239,7 +381,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   // Fetch GMs when convention is selected. Skip when on rating question or loop frozen to prevent loop.
   useEffect(() => {
     if (loopFrozenRef.current || isOnRatingQuestion) return;
-    const conventionQuestion = survey?.questions.find(q => q.question_text === 'What convention are you attending?');
+    const conventionQuestion = findConventionQuestion(survey?.questions);
     const selectedConvention = conventionQuestion && (answers[conventionQuestion.id] || preSelectedConvention);
 
     if (selectedConvention && conventionQuestion) {
@@ -273,10 +415,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                 setFilteredGMs(data.gms);
               } else {
                 // If no GMs in response, fall back to all GMs from question options
-                const gmQuestion = survey?.questions.find(q =>
-                  (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
-                  ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
-                );
+                const gmQuestion = findGMChoiceQuestion(survey?.questions);
                 if (gmQuestion && gmQuestion.options) {
                   setFilteredGMs(gmQuestion.options.map((opt: any) => ({
                     id: opt.id,
@@ -290,10 +429,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
             })
             .catch(err => {
               console.error('Error fetching GMs by convention:', err);
-              const gmQuestion = survey?.questions.find(q =>
-                (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
-                ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
-              );
+              const gmQuestion = findGMChoiceQuestion(survey?.questions);
               if (gmQuestion && gmQuestion.options) {
                 setFilteredGMs(gmQuestion.options.map((opt: any) => ({
                   id: opt.id,
@@ -320,10 +456,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               setFilteredGMs(data.gms);
             } else {
               // If no GMs in response, fall back to all GMs from question options
-              const gmQuestion = survey?.questions.find(q => 
-                (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
-                ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
-              );
+              const gmQuestion = findGMChoiceQuestion(survey?.questions);
               if (gmQuestion && gmQuestion.options) {
                 setFilteredGMs(gmQuestion.options.map((opt: any) => ({
                   id: opt.id,
@@ -338,10 +471,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
           .catch(err => {
             console.error('Error fetching GMs by convention:', err);
             // On error, fall back to all GMs from question options
-            const gmQuestion = survey?.questions.find(q => 
-              (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
-              ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
-            );
+            const gmQuestion = findGMChoiceQuestion(survey?.questions);
             if (gmQuestion && gmQuestion.options) {
               setFilteredGMs(gmQuestion.options.map((opt: any) => ({
                 id: opt.id,
@@ -363,10 +493,9 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         setSelectedGMOptionId(null);
         setSelectedGMName(null);
         setFilteredAdventures([]);
-        const gmQuestion = survey?.questions.find(q => 
-          (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master'))
-        );
-        const adventureQuestion = survey?.questions.find(q => q.question_text === 'What adventure did you play?');
+        setAdventuresLoading(false);
+        const gmQuestion = findGMChoiceQuestion(survey?.questions);
+        const adventureQuestion = findAdventureQuestion(survey?.questions);
         if (gmQuestion) {
           setAnswers(prev => {
             const newAnswers = { ...prev };
@@ -392,10 +521,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   // Sync selectedGMOptionId with GM answer and fetch adventures. Skip when on rating question or loop frozen to prevent loop.
   useEffect(() => {
     if (loopFrozenRef.current || !survey || isOnRatingQuestion) return;
-    const gmQuestion = survey.questions.find(q => 
-        (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
-        ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
-      );
+    const gmQuestion = findGMChoiceQuestion(survey.questions);
       
       if (gmQuestion && answers[gmQuestion.id]) {
         const gmAnswerValue = answers[gmQuestion.id];
@@ -421,7 +547,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         
         // Fetch adventures if we have the option ID and convention
         const gmOptionIdToUse = matchedOption?.id || selectedGMOptionId;
-        const conventionQuestion = survey.questions.find(q => q.question_text === 'What convention are you attending?');
+        const conventionQuestion = findConventionQuestion(survey.questions);
         const selectedConvention = conventionQuestion && (answers[conventionQuestion.id] || preSelectedConvention);
         
         if (gmOptionIdToUse && selectedConvention && conventionQuestion) {
@@ -441,6 +567,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               // Already fetched for this GM+convention; skip to avoid re-render loop
             } else {
               lastFetchedAdventuresKeyRef.current = fetchKey;
+              setAdventuresLoading(true);
               fetch(`/api/survey/adventures-by-gm?gm_option_id=${gmOptionIdToUse}&convention_option_id=${conventionOption.id}`)
                 .then(res => {
                   if (!res.ok) {
@@ -454,15 +581,18 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                   } else {
                     setFilteredAdventures([]);
                   }
+                  setAdventuresLoading(false);
                 })
                 .catch(err => {
                   console.error('Error fetching adventures by GM and Convention:', err);
                   setFilteredAdventures([]);
+                  setAdventuresLoading(false);
                 });
             }
           } else {
             // Try by convention value
             console.log('Fetching adventures by GM option ID and convention value:', gmOptionIdToUse, selectedConvention);
+            setAdventuresLoading(true);
             fetch(`/api/survey/adventures-by-gm?gm_option_id=${gmOptionIdToUse}&convention_value=${encodeURIComponent(selectedConvention)}`)
               .then(res => {
                 if (!res.ok) {
@@ -477,15 +607,18 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                 } else {
                   setFilteredAdventures([]);
                 }
+                setAdventuresLoading(false);
               })
               .catch(err => {
                 console.error('Error fetching adventures by GM and Convention:', err);
                 setFilteredAdventures([]);
+                setAdventuresLoading(false);
               });
           }
         } else if (!gmOptionIdToUse && !selectedGMOptionId && gmAnswerValue && selectedConvention) {
           // Try fetching by GM name/value and convention as fallback
           console.log('Fetching adventures by GM name/value and convention:', gmAnswerValue, selectedConvention);
+          setAdventuresLoading(true);
           fetch(`/api/survey/adventures-by-gm?gm_name=${encodeURIComponent(gmAnswerValue)}&convention_value=${encodeURIComponent(selectedConvention)}`)
             .then(res => {
               if (!res.ok) {
@@ -500,20 +633,25 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               } else {
                 setFilteredAdventures([]);
               }
+              setAdventuresLoading(false);
             })
             .catch(err => {
               console.error('Error fetching adventures by GM name and Convention:', err);
               setFilteredAdventures([]);
+              setAdventuresLoading(false);
             });
         }
       } else if (!answers[gmQuestion?.id || -1] && selectedGMOptionId) {
         // GM answer was cleared, clear adventures
         lastFetchedAdventuresKeyRef.current = null;
         setFilteredAdventures([]);
+        setAdventuresLoading(false);
       }
   }, [survey, answers, selectedGMOptionId, filteredGMs, isOnRatingQuestion]);
 
   const handleAnswer = (questionId: number, value: any) => {
+    setSubmissionError(null);
+
     // Handle GM selection - find GM question and check if this is it
     const gmQuestion = survey?.questions.find(q => 
       q.id === questionId &&
@@ -565,8 +703,12 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         }
       }
       
-      // Clear adventure and set GM answer in one update so neither is lost
-      const adventureQuestion = survey?.questions.find(q => q.question_text === 'What adventure did you play?');
+      // Clear the previous adventure answer while the selected GM's adventure list reloads.
+      setAdventuresLoading(true);
+      lastFetchedAdventuresKeyRef.current = null;
+      setFilteredAdventures([]);
+
+      const adventureQuestion = findAdventureQuestion(survey?.questions);
       setAnswers(prev => {
         const next = { ...prev, [questionId]: value };
         if (adventureQuestion) delete next[adventureQuestion.id];
@@ -584,10 +726,10 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       
       // If they answer "no" to "Would you like to learn more about being a GM?"
       // Clear name and email answers
-      if (questionId === survey?.questions.find(q => q.display_order === 7)?.id && value === 'no') {
-        const firstNameQuestion = survey?.questions.find(q => q.display_order === 8);
-        const lastNameQuestion = survey?.questions.find(q => q.display_order === 9);
-        const emailQuestion = survey?.questions.find(q => q.display_order === 10);
+      if (questionId === findQuestionByOrder(survey?.questions, GM_INTEREST_ORDER)?.id && value === 'no') {
+        const firstNameQuestion = findQuestionByOrder(survey?.questions, GM_FIRST_NAME_ORDER);
+        const lastNameQuestion = findQuestionByOrder(survey?.questions, GM_LAST_NAME_ORDER);
+        const emailQuestion = findQuestionByOrder(survey?.questions, GM_EMAIL_ORDER);
         if (firstNameQuestion) delete newAnswers[firstNameQuestion.id];
         if (lastNameQuestion) delete newAnswers[lastNameQuestion.id];
         if (emailQuestion) delete newAnswers[emailQuestion.id];
@@ -598,15 +740,23 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   };
 
   const handleNext = async () => {
-    // Check if we're on the recommendation question (Q6)
-    const recommendationQuestion = survey?.questions.find(q => q.display_order === 6);
+    // Check if we're on the final standard survey question before the GM-interest follow-up.
+    // With the restored open-ended question, this is Q7; older databases without Q7 fall back to Q6.
     const currentQ = effectiveVisibleQuestions[currentQuestion];
+    const finalStandardSurveyQuestion = effectiveVisibleQuestions
+      .filter(q => questionOrder(q) <= STANDARD_SURVEY_END_ORDER)
+      .sort((a, b) => questionOrder(a) - questionOrder(b))
+      .at(-1);
+    const currentAnswer = currentQ ? answers[currentQ.id] : undefined;
+    const currentQuestionAnswered = !currentQ?.is_required || (currentAnswer !== undefined && currentAnswer !== null && (typeof currentAnswer !== 'string' || currentAnswer.trim() !== ''));
     
-    // If we just answered the recommendation question, submit survey and show coupon page
-    if (recommendationQuestion && currentQ?.id === recommendationQuestion.id && answers[recommendationQuestion.id] !== undefined && answers[recommendationQuestion.id] !== null && answers[recommendationQuestion.id] !== '' && !showCouponPage && !responseId) {
+    // If we just answered the final standard survey question, submit survey and show coupon page.
+    if (finalStandardSurveyQuestion && currentQ?.id === finalStandardSurveyQuestion.id && currentQuestionAnswered && !showCouponPage && !responseId) {
       // Submit survey with all answers up to this point
-      await submitSurveyUpToRecommendation();
-      setShowCouponPage(true);
+      const submittedSuccessfully = await submitSurveyUpToRecommendation();
+      if (submittedSuccessfully) {
+        setShowCouponPage(true);
+      }
       return;
     }
     
@@ -620,17 +770,19 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   };
 
   const submitSurveyUpToRecommendation = async () => {
-    if (isSubmittingRef.current || responseId) return;
+    if (isSubmittingRef.current) return false;
+    if (responseId) return true;
     
     isSubmittingRef.current = true;
+    setSubmissionError(null);
     
     // Get GM question IDs to exclude them from main survey answers
     const gmQuestionIds = survey?.questions
-      .filter(q => q.display_order >= 8 && q.display_order <= 10)
+      .filter(q => questionOrder(q) >= GM_FIRST_NAME_ORDER && questionOrder(q) <= GM_EMAIL_ORDER)
       .map(q => q.id) || [];
     
     // Get convention question
-    const conventionQuestion = survey?.questions.find(q => q.question_text === 'What convention are you attending?');
+    const conventionQuestion = findConventionQuestion(survey?.questions);
     
     // Get all answers up to and including the recommendation question (exclude GM questions)
     const answerArray = Object.entries(answers)
@@ -664,34 +816,49 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
 
     try {
+      const participantId = getOrCreateParticipantId();
       const response = await fetch(`/api/survey/${surveyId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers: answerArray })
+        body: JSON.stringify({ answers: answerArray, respondentInfo: { participantId } })
       });
 
       if (response.ok) {
         const data = await response.json();
-        if (data.responseId) {
+        if (data.responseId && data.responseToken) {
           setResponseId(data.responseId);
+          setResponseToken(data.responseToken);
+          setCouponCode(tempCouponCode);
+          saveCouponForRetrieval(tempCouponCode, data.responseId, data.responseToken);
           // Record coupon delivery immediately
-          await recordCouponDelivery(data.responseId);
+          await recordCouponDelivery(data.responseId, data.responseToken);
         }
-      } else {
-        console.error('Error submitting survey:', response.status);
+        return true;
       }
+
+      const errorData = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        setSubmissionError(errorData.error || 'You have already completed this survey for this convention, GM, and adventure.');
+      } else {
+        setSubmissionError('Error submitting survey. Please try again.');
+      }
+      console.error('Error submitting survey:', response.status, errorData);
+      return false;
     } catch (error) {
       console.error('Error submitting survey:', error);
+      setSubmissionError('Error submitting survey. Please try again.');
+      return false;
     } finally {
       isSubmittingRef.current = false;
     }
   };
 
-  const recordCouponDelivery = async (responseIdParam?: number) => {
+  const recordCouponDelivery = async (responseIdParam?: number, responseTokenParam?: string) => {
     if (couponDelivered) return;
     
     const idToUse = responseIdParam || responseId;
-    if (!idToUse) return;
+    const tokenToUse = responseTokenParam || responseToken;
+    if (!idToUse || !tokenToUse) return;
     
     try {
       const response = await fetch('/api/coupon/deliver', {
@@ -699,12 +866,14 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           responseId: idToUse,
+          responseToken: tokenToUse,
           couponCode: tempCouponCode
         })
       });
       
       if (response.ok) {
         setCouponDelivered(true);
+        saveCouponForRetrieval(tempCouponCode, idToUse, tokenToUse);
         if (!responseId) {
           setResponseId(idToUse);
         }
@@ -724,6 +893,12 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   const handlePrevious = () => {
     if (currentQuestion > 0) {
       setCurrentQuestion(prev => Math.max(0, prev - 1));
+      return;
+    }
+
+    if (skipToGMQuestions) {
+      setSkipToGMQuestions(false);
+      setShowCouponPage(true);
     }
   };
 
@@ -738,6 +913,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
       // Update existing response with any additional answers (GM questions)
       await updateResponseWithRemainingAnswers();
       setCouponCode(tempCouponCode);
+      saveCouponForRetrieval(tempCouponCode, responseId, responseToken);
       setSubmitted(true);
       return;
     }
@@ -748,14 +924,15 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
     
     isSubmittingRef.current = true;
+    setSubmissionError(null);
     
     // Get GM question IDs to exclude them from main survey answers
     const gmQuestionIds = survey?.questions
-      .filter(q => q.display_order >= 8 && q.display_order <= 10)
+      .filter(q => questionOrder(q) >= GM_FIRST_NAME_ORDER && questionOrder(q) <= GM_EMAIL_ORDER)
       .map(q => q.id) || [];
     
     // Get convention question
-    const conventionQuestion = survey?.questions.find(q => q.question_text === 'What convention are you attending?');
+    const conventionQuestion = findConventionQuestion(survey?.questions);
     
     // Exclude GM questions from main survey answers
     // Include convention answer if pre-selected, even if question was hidden
@@ -790,44 +967,54 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     }
 
     try {
+      const participantId = getOrCreateParticipantId();
       const response = await fetch(`/api/survey/${surveyId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers: answerArray })
+        body: JSON.stringify({ answers: answerArray, respondentInfo: { participantId } })
       });
 
       if (response.ok) {
         const data = await response.json();
-        if (data.responseId) {
+        if (data.responseId && data.responseToken) {
           setResponseId(data.responseId);
+          setResponseToken(data.responseToken);
+          setCouponCode(tempCouponCode);
+          saveCouponForRetrieval(tempCouponCode, data.responseId, data.responseToken);
           // Record coupon delivery after submission
-          await recordCouponDelivery(data.responseId);
+          await recordCouponDelivery(data.responseId, data.responseToken);
         }
         // Use the same coupon code that was shown in the QR code
         setCouponCode(tempCouponCode);
+        saveCouponForRetrieval(tempCouponCode, data.responseId, data.responseToken);
         setSubmitted(true);
       } else {
-        alert('Error submitting survey. Please try again.');
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 409) {
+          setSubmissionError(errorData.error || 'You have already completed this survey for this convention, GM, and adventure.');
+        } else {
+          setSubmissionError('Error submitting survey. Please try again.');
+        }
         isSubmittingRef.current = false;
       }
     } catch (error) {
       console.error('Error submitting survey:', error);
-      alert('Error submitting survey. Please try again.');
+      setSubmissionError('Error submitting survey. Please try again.');
       isSubmittingRef.current = false;
     }
   };
 
   const updateResponseWithRemainingAnswers = async () => {
-    if (!responseId) {
-      console.error('No responseId available for GM interest submission');
-      return { success: false, error: 'No responseId' };
+    if (!responseId || !responseToken) {
+      console.error('No response ownership token available for GM interest submission');
+      return { success: false, error: 'No response ownership token' };
     }
     
-    // Get GM questions (display_order 8, 9, 10)
-    const gmQuestions = survey?.questions.filter(q => q.display_order >= 8 && q.display_order <= 10) || [];
-    const firstNameQuestion = gmQuestions.find(q => q.display_order === 8);
-    const lastNameQuestion = gmQuestions.find(q => q.display_order === 9);
-    const emailQuestion = gmQuestions.find(q => q.display_order === 10);
+    // Get GM contact questions after the GM-interest opt-in question.
+    const gmQuestions = survey?.questions.filter(q => questionOrder(q) >= GM_FIRST_NAME_ORDER && questionOrder(q) <= GM_EMAIL_ORDER) || [];
+    const firstNameQuestion = findQuestionByOrder(gmQuestions, GM_FIRST_NAME_ORDER);
+    const lastNameQuestion = findQuestionByOrder(gmQuestions, GM_LAST_NAME_ORDER);
+    const emailQuestion = findQuestionByOrder(gmQuestions, GM_EMAIL_ORDER);
     
     console.log('GM questions found:', {
       firstNameQuestion: firstNameQuestion?.id,
@@ -850,6 +1037,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             responseId: responseId,
+            responseToken: responseToken,
             firstName: typeof firstName === 'string' ? firstName : null,
             lastName: typeof lastName === 'string' ? lastName : null,
             email: typeof email === 'string' ? email : null
@@ -912,8 +1100,17 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
     return (
       <div className="container">
         <div className="success-message">
-          <h2>Thank You! 🎉</h2>
+          <h2>Thank You!</h2>
           <p style={{ fontSize: '1.2rem', marginTop: '1rem' }}>We'll be reaching out soon!</p>
+          {retrievableCouponCode && (
+            <div style={{ marginTop: '1.25rem', padding: '1rem', background: '#fff8f7', border: '2px solid #ed1c24', borderRadius: '10px' }}>
+              <p style={{ margin: '0 0 0.5rem 0', color: '#333', fontWeight: 600 }}>Need your coupon code again?</p>
+              <p style={{ margin: '0 0 0.75rem 0', fontFamily: 'monospace', fontSize: '1.2rem', fontWeight: 700, color: '#ed1c24', letterSpacing: '1px' }}>{retrievableCouponCode}</p>
+              <button type="button" onClick={() => copyCouponCode(retrievableCouponCode)} className="submit-button" style={{ maxWidth: '220px', margin: '0 auto' }}>
+                {copied ? 'Copied!' : 'Copy Coupon Code'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1009,7 +1206,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
   if (showCouponPage) {
     return (
       <div style={{ 
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: 'linear-gradient(135deg, #ed1c24 0%, #9f1016 100%)',
         minHeight: '100vh',
         padding: '1rem',
         display: 'flex',
@@ -1020,7 +1217,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
           padding: '1rem', 
           background: 'white',
           borderRadius: '12px', 
-          border: '2px solid #667eea',
+          border: '2px solid #ed1c24',
           textAlign: 'center',
           maxWidth: '600px',
           width: '100%',
@@ -1028,13 +1225,13 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         }}>
           <div style={{
             padding: '1rem', 
-            background: '#f0f8ff', 
+            background: '#fff8f7', 
             borderRadius: '12px', 
-            border: '2px solid #667eea',
+            border: '2px solid #ed1c24',
             textAlign: 'center'
           }}>
           <h2 style={{ fontSize: '1.3rem', fontWeight: 600, marginBottom: '0.75rem', color: '#333' }}>
-            Thank You! 🎉
+            Thank You!
           </h2>
           <p style={{ fontSize: '0.9rem', marginBottom: '1rem', color: '#666' }}>
             Your $5 coupon code:
@@ -1059,7 +1256,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                   fontSize: '1.3rem', 
                   fontFamily: 'monospace', 
                   fontWeight: 700, 
-                  color: '#667eea', 
+                  color: '#ed1c24', 
                   letterSpacing: '2px',
                   margin: 0,
                   wordBreak: 'break-all'
@@ -1067,22 +1264,14 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                   {tempCouponCode}
                 </p>
                 <button
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(tempCouponCode);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    } catch (err) {
-                      console.error('Failed to copy:', err);
-                    }
-                  }}
+                  onClick={() => copyCouponCode(tempCouponCode)}
                   style={{
                     padding: '0.6rem 1rem',
                     fontSize: '0.85rem',
                     fontWeight: 600,
-                    color: copied ? '#27ae60' : '#667eea',
+                    color: copied ? '#27ae60' : '#ed1c24',
                     background: copied ? '#d4edda' : 'white',
-                    border: `2px solid ${copied ? '#27ae60' : '#667eea'}`,
+                    border: `2px solid ${copied ? '#27ae60' : '#ed1c24'}`,
                     borderRadius: '6px',
                     cursor: 'pointer',
                     transition: 'all 0.2s',
@@ -1143,18 +1332,21 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
                           email: emailAddress, 
-                          couponCode: tempCouponCode 
+                          couponCode: tempCouponCode,
+                          responseId,
+                          responseToken
                         })
                       });
                       if (response.ok) {
                         setEmailSent(true);
-                        // Update coupon delivery record with email if we have responseId
-                        if (responseId) {
+                        // Update coupon delivery record with email if we have response ownership data
+                        if (responseId && responseToken) {
                           await fetch('/api/coupon/deliver', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                               responseId: responseId,
+                              responseToken: responseToken,
                               couponCode: tempCouponCode,
                               emailAddress: emailAddress
                             })
@@ -1176,7 +1368,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                     fontSize: '0.9rem',
                     fontWeight: 600,
                     color: 'white',
-                    background: sendingEmail ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    background: sendingEmail ? '#ccc' : 'linear-gradient(135deg, #ed1c24 0%, #9f1016 100%)',
                     border: 'none',
                     borderRadius: '6px',
                     cursor: sendingEmail ? 'not-allowed' : 'pointer',
@@ -1221,7 +1413,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               fontSize: '0.95rem',
               fontWeight: 600,
               color: 'white',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(135deg, #ed1c24 0%, #9f1016 100%)',
               borderRadius: '8px',
               textDecoration: 'none',
               transition: 'transform 0.2s, box-shadow 0.2s',
@@ -1232,7 +1424,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 10px 20px rgba(102, 126, 234, 0.4)';
+              e.currentTarget.style.boxShadow = '0 10px 20px rgba(237, 28, 36, 0.3)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)';
@@ -1310,36 +1502,69 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
 
   return (
     <div className="container">
+      <header className="brand-lockup" aria-label="Evil Genius Games survey">
+        <div className="brand-logo-frame">
+          <img
+            src="/brand/evil-genius-games-logo.webp"
+            alt="Evil Genius Games"
+            className="brand-logo"
+            width={170}
+            height={52}
+            loading="eager"
+            decoding="async"
+          />
+        </div>
+        <p className="brand-kicker">Mission Debrief</p>
+        <h1 className="brand-title">Unlock your <span>$5 reward</span></h1>
+      </header>
       {conventionDisplayName && (
-        <div style={{
-          padding: '0.5rem 1rem',
-          background: '#f0f8ff',
-          border: '1px solid #667eea',
-          borderRadius: '6px',
-          marginBottom: '1.5rem',
-          textAlign: 'center',
-          fontSize: '0.9rem',
-          color: '#333',
-          maxWidth: '600px',
-          margin: '0 auto 1.5rem auto'
-        }}>
-          <span style={{ color: '#667eea', fontWeight: 600 }}>Convention:</span> {conventionDisplayName}
+        <div className="convention-badge">
+          <strong>Convention:</strong> {conventionDisplayName}
         </div>
       )}
-      <h1 style={{ textAlign: 'center', fontSize: '1.5rem', marginBottom: '0.5rem', color: '#333' }}>
-        Thanks for playing with
-      </h1>
-      <h1 style={{ textAlign: 'center', fontSize: '2rem', marginBottom: '1rem', color: '#667eea', fontWeight: 700 }}>
-        Evil Genius Games
-      </h1>
-      <p style={{ textAlign: 'center', fontSize: '0.95rem', marginBottom: '1.5rem', color: '#666', lineHeight: '1.5' }}>
-        Complete this 5 minute survey to receive a $5 coupon from Evil Genius Games
+      <p className="brand-subtitle">
+        File your after-action report from the table. It takes about five minutes, unlocks your reward, and helps Evil Genius Games make the next cinematic adventure even more legendary.
       </p>
       <form onSubmit={handleFormSubmit}>
         <div className="survey-header">
-          <h2>{survey.title}</h2>
-          {survey.description && <p>{survey.description}</p>}
+          <h2>{isGMApplicationStep ? 'GM Application' : survey.title}</h2>
+          {survey.description && !isGMApplicationStep && <p>{survey.description}</p>}
+          {isGMApplicationStep && (
+            <p>
+              Great GMs are the heroes who make every table unforgettable. The Evil Genius GM program gives you a chance to run cinematic adventures, meet an enthusiastic community of players, preview exciting game experiences, and help more fans discover their next favorite story. Your coupon stays available while you apply, and you can go back to it at any time.
+            </p>
+          )}
         </div>
+
+      {retrievableCouponCode && (
+        <div style={{
+          maxWidth: '600px',
+          margin: '0 auto 1rem auto',
+          padding: '0.85rem 1rem',
+          border: '2px solid #ed1c24',
+          borderRadius: '10px',
+          background: '#fff8f7',
+          color: '#333',
+          display: 'flex',
+          gap: '0.75rem',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap'
+        }}>
+          <span><strong>Your coupon code:</strong> <span style={{ fontFamily: 'monospace', color: '#ed1c24', fontWeight: 700, letterSpacing: '1px' }}>{retrievableCouponCode}</span></span>
+          <button type="button" onClick={() => copyCouponCode(retrievableCouponCode)} style={{
+            padding: '0.5rem 0.85rem',
+            border: '2px solid #ed1c24',
+            borderRadius: '6px',
+            background: copied ? '#d4edda' : 'white',
+            color: copied ? '#27ae60' : '#ed1c24',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}>
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+      )}
 
       <div className="progress-bar">
         <div className="progress-fill" style={{ width: `${progress}%` }} />
@@ -1404,9 +1629,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         {question.question_type === 'rating' && (
           <div className="rating-container">
             {(() => {
-              // Determine rating scale based on question text
-              const isTenScale = question.question_text.toLowerCase().includes('1 to 10') || question.question_text.toLowerCase().includes('scale of 1 to 10');
-              const maxRating = isTenScale ? 10 : 5;
+              const maxRating = getRatingMax(question);
               const ratings = Array.from({ length: maxRating }, (_, i) => i + 1);
               
               return ratings.map((rating) => (
@@ -1415,7 +1638,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
                   type="button"
                   className={`rating-button ${answers[question.id] === rating ? 'selected' : ''}`}
                   onClick={() => handleAnswer(question.id, rating)}
-                  style={maxRating === 10 ? { width: '40px', height: '40px', fontSize: '1rem' } : {}}
+                  style={maxRating > 5 ? { width: '40px', height: '40px', fontSize: '1rem' } : {}}
                 >
                   {rating}
                 </button>
@@ -1476,27 +1699,35 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
             <option value="">Select an option...</option>
             {(() => {
               // Filter adventures by GM - ONLY show adventures if GM is selected
-              if (question.question_text === 'What adventure did you play?') {
+              if (question.id === findAdventureQuestion(survey?.questions)?.id) {
                 // Check if GM was answered (even if selectedGMOptionId isn't set yet)
-                const gmQuestion = survey?.questions.find(q => 
-                  (q.question_text.toLowerCase().includes('gm') || q.question_text.toLowerCase().includes('game master')) &&
-                  ['dropdown', 'single_choice', 'multiple_choice'].includes(q.question_type)
-                );
+                const gmQuestion = findGMChoiceQuestion(survey?.questions);
                 const gmAnswered = gmQuestion && answers[gmQuestion.id];
                 const hasGMOptionId = selectedGMOptionId != null;
                 
-                if ((hasGMOptionId || gmAnswered) && filteredAdventures.length > 0) {
-                  // Show only adventures associated with the selected GM
-                  return [...filteredAdventures].sort((a: any, b: any) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map((adventure: any) => (
-                    <option key={adventure.id} value={adventure.option_value || adventure.option_text}>
-                      {adventure.option_text}
-                    </option>
-                  ));
-                } else if ((hasGMOptionId || gmAnswered) && filteredAdventures.length === 0) {
-                  // GM selected but no adventures associated (or still loading)
+                if (hasGMOptionId || gmAnswered) {
+                  if (adventuresLoading && filteredAdventures.length === 0) {
+                    return (
+                      <option value="" disabled>
+                        Loading adventures...
+                      </option>
+                    );
+                  }
+
+                  const adventuresToShow = filteredAdventures.length > 0 ? filteredAdventures : question.options || [];
+
+                  if (adventuresToShow.length > 0) {
+                    // Show GM-associated adventures when available; otherwise fall back to every adventure option.
+                    return [...adventuresToShow].sort((a: any, b: any) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map((adventure: any) => (
+                      <option key={adventure.id} value={adventure.option_value || adventure.option_text}>
+                        {adventure.option_text}
+                      </option>
+                    ));
+                  }
+
                   return (
                     <option value="" disabled>
-                      {hasGMOptionId ? 'No adventures available for this GM' : 'Loading adventures...'}
+                      No adventure options are configured
                     </option>
                   );
                 } else {
@@ -1510,7 +1741,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
               }
               
               // Filter GMs by convention
-              const isGMQuestion = (question.question_text.toLowerCase().includes('gm') || question.question_text.toLowerCase().includes('game master'));
+              const isGMQuestion = isGMChoiceQuestion(question);
               if (isGMQuestion) {
                 // If convention filtering is active, use filteredGMs, otherwise use all GM options
                 const gmsToShow = filteredGMs.length > 0 ? filteredGMs : question.options || [];
@@ -1563,10 +1794,29 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
         )}
       </div>
 
+      {submissionError && (
+        <div
+          role="alert"
+          style={{
+            maxWidth: '600px',
+            margin: '0 auto 1rem auto',
+            padding: '0.85rem 1rem',
+            border: '1px solid #d33',
+            borderRadius: '8px',
+            background: '#fff5f5',
+            color: '#9b1c1c',
+            fontWeight: 600,
+            lineHeight: 1.4,
+          }}
+        >
+          {submissionError}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '1rem', justifyContent: 'space-between' }}>
-        {safeCurrentQuestion > 0 && (
+        {(safeCurrentQuestion > 0 || skipToGMQuestions) && (
           <button type="button" onClick={handlePrevious} className="submit-button" style={{ flex: 1 }}>
-            Previous
+            Back
           </button>
         )}
         {!isLastQuestion ? (
@@ -1617,7 +1867,7 @@ export default function SurveyForm({ surveyId, preSelectedConvention }: { survey
             }}
             title={!canProceed ? `Please answer this question${question.is_required ? ' (required)' : ''}. Answer: ${JSON.stringify(answers[question.id])}, Type: ${typeof answers[question.id]}` : 'Submit survey'}
           >
-            {isSubmittingRef.current ? 'Submitting...' : 'Submit'}
+            {isSubmittingRef.current ? 'Submitting...' : (skipToGMQuestions ? 'Submit Application' : 'Submit')}
           </button>
         )}
       </div>

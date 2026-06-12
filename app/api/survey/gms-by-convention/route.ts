@@ -1,32 +1,18 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
-// Ensure tables exist (same function as in gm-adventures route)
 async function ensureTablesExist() {
-  const client = await pool.connect();
-  try {
-    const conventionsTableExists = await client.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'gm_conventions'
-      )
-    `);
+  const { rows } = await pool.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'gm_conventions'`
+  );
+  const columnNames = new Set(rows.map((row: any) => row.column_name));
+  const missing = ['id', 'gm_option_id', 'convention_option_id', 'created_at'].filter(column => !columnNames.has(column));
 
-    if (!conventionsTableExists.rows[0].exists) {
-      await client.query(`
-        CREATE TABLE gm_conventions (
-          id SERIAL PRIMARY KEY,
-          gm_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-          convention_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(gm_option_id, convention_option_id)
-        )
-      `);
-      await client.query(`CREATE INDEX idx_gm_conventions_gm_option_id ON gm_conventions(gm_option_id)`);
-      await client.query(`CREATE INDEX idx_gm_conventions_convention_option_id ON gm_conventions(convention_option_id)`);
-    }
-  } finally {
-    client.release();
+  if (missing.length > 0) {
+    throw new Error(`Database schema is incomplete. Run migrations/20260606_harden_schema.sql before filtering GMs by convention. Missing: ${missing.map(column => `gm_conventions.${column}`).join(', ')}`);
   }
 }
 

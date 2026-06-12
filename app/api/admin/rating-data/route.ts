@@ -21,59 +21,49 @@ export async function GET(request: Request) {
       `;
     }
 
-    // Get GM Rating data (1-5 scale)
-    const gmRatingQuery = `
+    const ratingQuery = (questionPredicate: string) => `
       SELECT 
         a.answer_value::INTEGER as rating,
         COUNT(*)::INTEGER as count
       FROM answers a
       JOIN questions q ON a.question_id = q.id
       ${conventionJoin}
-      WHERE q.question_text = 'Rate your GM on a scale from 1 to 5'
+      WHERE q.question_type = 'rating'
+        AND ${questionPredicate}
         AND a.answer_value IS NOT NULL
         AND a.answer_value ~ '^[0-9]+$'
         ${conventionWhere}
       GROUP BY a.answer_value::INTEGER
       ORDER BY rating`;
 
-    const gmRatingParams = convention && convention !== 'all' ? [convention] : [];
-    const gmRatingResult = await client.query(gmRatingQuery, gmRatingParams);
+    const ratingParams = convention && convention !== 'all' ? [convention] : [];
 
-    // Get Adventure Rating data (1-5 scale)
-    const adventureRatingQuery = `
-      SELECT 
-        a.answer_value::INTEGER as rating,
-        COUNT(*)::INTEGER as count
-      FROM answers a
-      JOIN questions q ON a.question_id = q.id
-      ${conventionJoin}
-      WHERE q.question_text = 'Rate the adventure on a scale from 1 to 5'
-        AND a.answer_value IS NOT NULL
-        AND a.answer_value ~ '^[0-9]+$'
-        ${conventionWhere}
-      GROUP BY a.answer_value::INTEGER
-      ORDER BY rating`;
+    // Get GM Rating data (1-5 scale). Match by role and max value so wording updates do not break reporting.
+    const gmRatingResult = await client.query(
+      ratingQuery(`
+        lower(q.question_text) LIKE '%gm%'
+        AND COALESCE((q.validation_rules ->> 'max')::INTEGER, 5) = 5
+      `),
+      ratingParams
+    );
 
-    const adventureRatingParams = convention && convention !== 'all' ? [convention] : [];
-    const adventureRatingResult = await client.query(adventureRatingQuery, adventureRatingParams);
+    // Get Adventure Rating data (1-5 scale). Match by role and max value so wording updates do not break reporting.
+    const adventureRatingResult = await client.query(
+      ratingQuery(`
+        lower(q.question_text) LIKE '%adventure%'
+        AND COALESCE((q.validation_rules ->> 'max')::INTEGER, 5) = 5
+      `),
+      ratingParams
+    );
 
-    // Get Recommendation Rating data (1-10 scale)
-    const recommendationRatingQuery = `
-      SELECT 
-        a.answer_value::INTEGER as rating,
-        COUNT(*)::INTEGER as count
-      FROM answers a
-      JOIN questions q ON a.question_id = q.id
-      ${conventionJoin}
-      WHERE q.question_text = 'On a scale of 1 to 10, Would you recommend Everyday Heroes to a friend?'
-        AND a.answer_value IS NOT NULL
-        AND a.answer_value ~ '^[0-9]+$'
-        ${conventionWhere}
-      GROUP BY a.answer_value::INTEGER
-      ORDER BY rating`;
-
-    const recommendationRatingParams = convention && convention !== 'all' ? [convention] : [];
-    const recommendationRatingResult = await client.query(recommendationRatingQuery, recommendationRatingParams);
+    // Get Recommendation/NPS Rating data (1-10 scale). Match by role and max value so wording updates do not break reporting.
+    const recommendationRatingResult = await client.query(
+      ratingQuery(`
+        (lower(q.question_text) LIKE '%recommend%' OR lower(q.question_text) LIKE '%friend%' OR lower(q.question_text) LIKE '%nps%')
+        AND COALESCE((q.validation_rules ->> 'max')::INTEGER, 10) = 10
+      `),
+      ratingParams
+    );
 
     // Fill in missing ratings with 0 count
     const fillRatings = (data: any[], maxRating: number) => {

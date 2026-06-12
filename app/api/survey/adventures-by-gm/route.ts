@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
+async function getAllAdventures(client: any) {
+  const allAdventuresResult = await client.query(`
+    SELECT qo.id, qo.option_text, qo.option_value
+    FROM question_options qo
+    JOIN questions q ON qo.question_id = q.id
+    WHERE q.question_text = 'What adventure did you play?'
+    ORDER BY qo.display_order
+  `);
+  return allAdventuresResult.rows;
+}
+
 // GET - Get adventures for a specific GM and Convention (three-way relationship)
 export async function GET(request: Request) {
   const client = await pool.connect();
@@ -37,7 +48,8 @@ export async function GET(request: Request) {
       );
 
       if (gmResult.rows.length === 0) {
-        return NextResponse.json({ adventures: [] });
+        const allAdventures = await getAllAdventures(client);
+        return NextResponse.json({ adventures: allAdventures });
       }
 
       gmOptionIdValue = gmResult.rows[0].id;
@@ -58,7 +70,8 @@ export async function GET(request: Request) {
       );
 
       if (conventionResult.rows.length === 0) {
-        return NextResponse.json({ adventures: [] });
+        const allAdventures = await getAllAdventures(client);
+        return NextResponse.json({ adventures: allAdventures });
       }
 
       conventionOptionIdValue = conventionResult.rows[0].id;
@@ -75,14 +88,8 @@ export async function GET(request: Request) {
 
     // If no associations found, return all adventures (fallback)
     if (adventuresResult.rows.length === 0) {
-      const allAdventuresResult = await client.query(`
-        SELECT qo.id, qo.option_text, qo.option_value
-        FROM question_options qo
-        JOIN questions q ON qo.question_id = q.id
-        WHERE q.question_text = 'What adventure did you play?'
-        ORDER BY qo.display_order
-      `);
-      return NextResponse.json({ adventures: allAdventuresResult.rows });
+      const allAdventures = await getAllAdventures(client);
+      return NextResponse.json({ adventures: allAdventures });
     }
 
     return NextResponse.json({ adventures: adventuresResult.rows });

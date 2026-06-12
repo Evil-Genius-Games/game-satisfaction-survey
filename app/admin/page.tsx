@@ -38,17 +38,31 @@ interface Response {
     display_order: number;
     answer_text: string | null;
     answer_value: string | null;
-  }>;
+  }> | null;
 }
 
+type AdminTab = 'dropdowns' | 'responses' | 'gm-interest' | 'graphs' | 'settings' | 'gm-adventures';
+
+const adminDateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  second: '2-digit',
+  timeZone: 'America/Los_Angeles',
+});
+
+const formatAdminTimestamp = (timestamp: string) => adminDateFormatter.format(new Date(timestamp));
+
 export default function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'dropdowns' | 'responses' | 'gm-interest' | 'graphs' | 'settings' | 'gm-adventures'>('dropdowns');
+  const [activeTab, setActiveTab] = useState<AdminTab>('dropdowns');
   const [ratingData, setRatingData] = useState<any>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [responses, setResponses] = useState<Response[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingOption, setEditingOption] = useState<{ questionId: number; optionId: number; text: string } | null>(null);
-  const [groupBy, setGroupBy] = useState<'convention' | 'game' | 'none'>('none');
+  const [groupBy, setGroupBy] = useState<'convention' | 'game' | 'gm' | 'none'>('none');
   const [graphConventionFilter, setGraphConventionFilter] = useState<string>('all');
   const [csvConventionFilter, setCsvConventionFilter] = useState<string>('all');
   const [conventions, setConventions] = useState<Array<{ value: string; display: string }>>([]);
@@ -64,6 +78,8 @@ export default function AdminPanel() {
   const [gmAdventures, setGmAdventures] = useState<any>(null);
   const [selectedGMOptionId, setSelectedGMOptionId] = useState<number | null>(null);
   const [linkCopiedFeedback, setLinkCopiedFeedback] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [adminUserEmail, setAdminUserEmail] = useState<string>('');
 
   useEffect(() => {
     const loadData = async () => {
@@ -79,6 +95,8 @@ export default function AdminPanel() {
           console.error('Fetch error:', error);
         });
       };
+
+      await fetchCurrentAdminUser();
 
       // Load all data in parallel but independently
       await Promise.allSettled([
@@ -104,6 +122,31 @@ export default function AdminPanel() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  const fetchCurrentAdminUser = async () => {
+    try {
+      const res = await fetch('/api/admin-auth/me', { cache: 'no-store' });
+      if (res.status === 401) {
+        window.location.href = '/admin/login?next=/admin';
+        return;
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        setAdminUserEmail(data.user?.email || '');
+      }
+    } catch (error) {
+      console.error('Error loading admin account:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin-auth/logout', { method: 'POST' });
+    } finally {
+      window.location.href = '/admin/login';
+    }
+  };
 
   // Refresh GM adventures when GM question options change
   useEffect(() => {
@@ -389,8 +432,10 @@ export default function AdminPanel() {
     }
   };
 
+  const getResponseAnswers = (response: Response) => Array.isArray(response.answers) ? response.answers : [];
+
   const getAnswerValue = (response: Response, questionText: string) => {
-    const answer = response.answers.find(ans => ans.question_text === questionText);
+    const answer = getResponseAnswers(response).find(ans => ans.question_text === questionText);
     return answer?.answer_text || answer?.answer_value || 'Unknown';
   };
 
@@ -407,6 +452,8 @@ export default function AdminPanel() {
         category = getAnswerValue(response, 'What convention are you attending?');
       } else if (groupBy === 'game') {
         category = getAnswerValue(response, 'What adventure did you play?');
+      } else if (groupBy === 'gm') {
+        category = getAnswerValue(response, 'Who was your GM / Game Master?');
       }
 
       if (!grouped[category]) {
@@ -557,7 +604,8 @@ export default function AdminPanel() {
 
     try {
       const res = await fetch('/api/admin/reprocess-gm-interest', {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'x-confirm-action': 'reprocess-gm-interest' }
       });
 
       const data = await res.json();
@@ -587,7 +635,8 @@ export default function AdminPanel() {
 
     try {
       const res = await fetch('/api/admin/remove-gm-answers', {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'x-confirm-action': 'remove-gm-answers' }
       });
 
       const data = await res.json();
@@ -612,7 +661,8 @@ export default function AdminPanel() {
     if (!confirm('Are you REALLY sure? This will permanently delete all data.')) return;
     try {
       const res = await fetch('/api/admin/clear-database', {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { 'x-confirm-action': 'clear-database' }
       });
       if (res.ok) {
         alert('Database cleared successfully');
@@ -627,6 +677,19 @@ export default function AdminPanel() {
   };
 
   const dropdownQuestions = questions.filter(q => ['dropdown', 'multiple_choice', 'single_choice'].includes(q.question_type));
+  const adminTabs: Array<{ id: AdminTab; label: string }> = [
+    { id: 'dropdowns', label: 'Dropdown Options' },
+    { id: 'gm-adventures', label: 'GM Associations' },
+    { id: 'graphs', label: 'Graphs' },
+    { id: 'responses', label: 'Responses' },
+    { id: 'gm-interest', label: 'GM Interest Form' },
+    { id: 'settings', label: 'Settings' }
+  ];
+  const activeTabLabel = adminTabs.find(tab => tab.id === activeTab)?.label || 'Admin Menu';
+  const handleTabSelect = (tabId: AdminTab) => {
+    setActiveTab(tabId);
+    setMobileMenuOpen(false);
+  };
 
   if (loading) {
     return (
@@ -637,118 +700,97 @@ export default function AdminPanel() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5', padding: '2rem' }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-        <h1 style={{ padding: '2rem', borderBottom: '2px solid #e0e0e0', margin: 0, fontSize: '2rem' }}>
-          Admin Panel
-        </h1>
+    <div className="admin-page" style={{ minHeight: '100vh', background: '#f5f5f5', padding: '2rem' }}>
+      <div className="admin-shell" style={{ maxWidth: '1200px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+        <header className="admin-title" style={{ padding: '2rem', borderBottom: '2px solid #e0e0e0', margin: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '2rem' }}>Evil Genius Survey Manager</h1>
+            {adminUserEmail && (
+              <p style={{ margin: '0.4rem 0 0', color: '#666', fontSize: '0.95rem' }}>
+                Signed in as {adminUserEmail}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            style={{ border: '1px solid #d0d0d0', borderRadius: '8px', background: 'white', color: '#333', padding: '0.65rem 1rem', fontWeight: 600, cursor: 'pointer' }}
+          >
+            Log out
+          </button>
+        </header>
         
-        <div style={{ display: 'flex', borderBottom: '1px solid #e0e0e0' }}>
-          <button
-            onClick={() => setActiveTab('dropdowns')}
-            style={{
-              flex: 1,
-              padding: '1rem',
-              border: 'none',
-              background: activeTab === 'dropdowns' ? '#667eea' : 'transparent',
-              color: activeTab === 'dropdowns' ? 'white' : '#333',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              fontWeight: 600
-            }}
-          >
-            Dropdown Options
-          </button>
-          <button
-            onClick={() => setActiveTab('gm-adventures')}
-            style={{
-              flex: 1,
-              padding: '1rem',
-              border: 'none',
-              background: activeTab === 'gm-adventures' ? '#667eea' : 'transparent',
-              color: activeTab === 'gm-adventures' ? 'white' : '#333',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              fontWeight: 600
-            }}
-          >
-            GM Associations
-          </button>
-          <button
-            onClick={() => setActiveTab('graphs')}
-            style={{
-              flex: 1,
-              padding: '1rem',
-              border: 'none',
-              background: activeTab === 'graphs' ? '#667eea' : 'transparent',
-              color: activeTab === 'graphs' ? 'white' : '#333',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              fontWeight: 600
-            }}
-          >
-            Graphs
-          </button>
-          <button
-            onClick={() => setActiveTab('responses')}
-            style={{
-              flex: 1,
-              padding: '1rem',
-              border: 'none',
-              background: activeTab === 'responses' ? '#667eea' : 'transparent',
-              color: activeTab === 'responses' ? 'white' : '#333',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              fontWeight: 600
-            }}
-          >
-            Responses
-          </button>
-          <button
-            onClick={() => setActiveTab('gm-interest')}
-            style={{
-              flex: 1,
-              padding: '1rem',
-              border: 'none',
-              background: activeTab === 'gm-interest' ? '#667eea' : 'transparent',
-              color: activeTab === 'gm-interest' ? 'white' : '#333',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              fontWeight: 600
-            }}
-          >
-            GM Interest Form
-          </button>
-          <button
-            onClick={() => setActiveTab('settings')}
-            style={{
-              flex: 1,
-              padding: '1rem',
-              border: 'none',
-              background: activeTab === 'settings' ? '#667eea' : 'transparent',
-              color: activeTab === 'settings' ? 'white' : '#333',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              fontWeight: 600
-            }}
-          >
-            Settings
-          </button>
-        </div>
+        <nav className="admin-nav" aria-label="Admin sections">
+          <div className="admin-tabs" style={{ display: 'flex', borderBottom: '1px solid #e0e0e0' }}>
+            {adminTabs.map(tab => (
+              <button
+                key={tab.id}
+                className="admin-tab-button"
+                onClick={() => handleTabSelect(tab.id)}
+                style={{
+                  flex: 1,
+                  padding: '1rem',
+                  border: 'none',
+                  background: activeTab === tab.id ? '#667eea' : 'transparent',
+                  color: activeTab === tab.id ? 'white' : '#333',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: 600
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-        <div style={{ padding: '2rem' }}>
+          <div className="admin-mobile-menu">
+            <button
+              className="admin-mobile-menu-trigger"
+              type="button"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="admin-mobile-menu-list"
+              onClick={() => setMobileMenuOpen(open => !open)}
+            >
+              <span>
+                <span className="admin-mobile-menu-eyebrow">Current section</span>
+                <strong>{activeTabLabel}</strong>
+              </span>
+              <span aria-hidden="true" className="admin-mobile-menu-chevron">{mobileMenuOpen ? '−' : '+'}</span>
+            </button>
+
+            {mobileMenuOpen && (
+              <div id="admin-mobile-menu-list" className="admin-mobile-menu-list">
+                {adminTabs.map(tab => (
+                  <button
+                    key={tab.id}
+                    className="admin-mobile-menu-item"
+                    type="button"
+                    aria-current={activeTab === tab.id ? 'page' : undefined}
+                    onClick={() => handleTabSelect(tab.id)}
+                  >
+                    <span>{tab.label}</span>
+                    {activeTab === tab.id && <span aria-hidden="true">Active</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </nav>
+
+        <div className="admin-content" style={{ padding: '2rem' }}>
           {activeTab === 'dropdowns' && (
-            <div>
+            <div className="admin-dropdown-options">
               <h2 style={{ marginBottom: '1.5rem' }}>Manage Dropdown Options</h2>
               {dropdownQuestions.map(question => (
-                <div key={question.id} style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px' }}>
+                <div key={question.id} className="admin-card" style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px' }}>
                   <h3 style={{ marginBottom: '1rem', color: '#333' }}>{question.question_text}</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {question.options?.slice().sort((a: any, b: any) => (a.option_text || a.option_value || '').localeCompare(b.option_text || b.option_value || '', undefined, { sensitivity: 'base' })).map(option => (
-                      <div key={option.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <div key={option.id} className="admin-option-row" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         {editingOption?.optionId === option.id ? (
                           <>
                             <input
+                              className="admin-option-input"
                               type="text"
                               value={editingOption.text}
                               onChange={(e) => setEditingOption({ ...editingOption, text: e.target.value })}
@@ -762,34 +804,38 @@ export default function AdminPanel() {
                               }}
                               autoFocus
                             />
-                            <button
-                              onClick={() => handleUpdateOption(question.id, option.id, editingOption.text)}
-                              style={{ padding: '0.5rem 1rem', background: '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                            >
-                              Save
-                            </button>
-                            <button
-                              onClick={() => setEditingOption(null)}
-                              style={{ padding: '0.5rem 1rem', background: '#ccc', color: '#333', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                            >
-                              Cancel
-                            </button>
+                            <div className="admin-option-actions admin-option-edit-actions">
+                              <button
+                                onClick={() => handleUpdateOption(question.id, option.id, editingOption.text)}
+                                style={{ padding: '0.5rem 1rem', background: '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setEditingOption(null)}
+                                style={{ padding: '0.5rem 1rem', background: '#ccc', color: '#333', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </>
                         ) : (
                           <>
-                            <span style={{ flex: 1, padding: '0.5rem' }}>{option.option_text}</span>
-                            <button
-                              onClick={() => setEditingOption({ questionId: question.id, optionId: option.id, text: option.option_text })}
-                              style={{ padding: '0.5rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeleteOption(option.id)}
-                              style={{ padding: '0.5rem 1rem', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                            >
-                              Delete
-                            </button>
+                            <span className="admin-option-text" style={{ flex: 1, padding: '0.5rem' }}>{option.option_text}</span>
+                            <div className="admin-option-actions">
+                              <button
+                                onClick={() => setEditingOption({ questionId: question.id, optionId: option.id, text: option.option_text })}
+                                style={{ padding: '0.5rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteOption(option.id)}
+                                style={{ padding: '0.5rem 1rem', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </>
                         )}
                       </div>
@@ -803,14 +849,14 @@ export default function AdminPanel() {
 
           {activeTab === 'responses' && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+              <div className="admin-section-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
                 <h2>Survey Responses ({responses.length})</h2>
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.95rem' }}>
+                <div className="admin-toolbar-controls" style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label className="admin-field-inline" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.95rem' }}>
                     Group by:
                     <select
                       value={groupBy}
-                      onChange={(e) => setGroupBy(e.target.value as 'convention' | 'game' | 'none')}
+                      onChange={(e) => setGroupBy(e.target.value as 'convention' | 'game' | 'gm' | 'none')}
                       style={{
                         padding: '0.5rem',
                         border: '1px solid #ccc',
@@ -821,9 +867,10 @@ export default function AdminPanel() {
                       <option value="none">None</option>
                       <option value="convention">Convention</option>
                       <option value="game">Game/Adventure</option>
+                      <option value="gm">GM</option>
                     </select>
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.95rem' }}>
+                  <label className="admin-field-inline" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.95rem' }}>
                     Filter CSV by Convention:
                     <select
                       value={csvConventionFilter}
@@ -868,7 +915,7 @@ export default function AdminPanel() {
                   </button>
                 </div>
               </div>
-              <div style={{ overflowX: 'auto' }}>
+              <div className="admin-table-scroll" style={{ overflowX: 'auto' }}>
                 {Object.entries(getGroupedResponses()).sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' })).map(([category, categoryResponses]) => (
                   <div key={category} style={{ marginBottom: '2rem' }}>
                     <div style={{
@@ -882,7 +929,7 @@ export default function AdminPanel() {
                     }}>
                       {category} ({categoryResponses.length} {categoryResponses.length === 1 ? 'response' : 'responses'})
                     </div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white' }}>
+                    <table className="admin-data-table" style={{ width: '100%', borderCollapse: 'collapse', background: 'white' }}>
                       <thead>
                         <tr style={{ background: '#f8f9fa' }}>
                           <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>ID</th>
@@ -894,18 +941,23 @@ export default function AdminPanel() {
                         {categoryResponses.map(response => (
                           <tr key={response.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
                             <td style={{ padding: '0.75rem' }}>{response.id}</td>
-                            <td style={{ padding: '0.75rem' }}>{new Date(response.submitted_at).toLocaleString()}</td>
+                            <td style={{ padding: '0.75rem' }}>{formatAdminTimestamp(response.submitted_at)}</td>
                             <td style={{ padding: '0.75rem' }}>
                               <details>
                                 <summary style={{ cursor: 'pointer', color: '#667eea' }}>View Answers</summary>
                                 <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: '#f8f9fa', borderRadius: '4px' }}>
-                                  {[...response.answers]
-                                    .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                                    .map((answer, idx) => (
-                                    <div key={idx} style={{ marginBottom: '0.25rem' }}>
-                                      <strong>{answer.question_text}:</strong> {answer.answer_text || answer.answer_value || '-'}
-                                    </div>
-                                  ))}
+                                  {getResponseAnswers(response).length > 0 ? (
+                                    getResponseAnswers(response)
+                                      .slice()
+                                      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+                                      .map((answer, idx) => (
+                                        <div key={idx} style={{ marginBottom: '0.25rem' }}>
+                                          <strong>{answer.question_text}:</strong> {answer.answer_text || answer.answer_value || '-'}
+                                        </div>
+                                      ))
+                                  ) : (
+                                    <div style={{ color: '#666', fontStyle: 'italic' }}>No answers recorded for this response.</div>
+                                  )}
                                 </div>
                               </details>
                             </td>
@@ -961,8 +1013,8 @@ export default function AdminPanel() {
                   Export CSV
                 </button>
               </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div className="admin-table-scroll" style={{ overflowX: 'auto' }}>
+                <table className="admin-data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: '#f8f9fa' }}>
                       <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '2px solid #e0e0e0' }}>ID</th>
@@ -986,7 +1038,7 @@ export default function AdminPanel() {
                           <td style={{ padding: '0.75rem' }}>{gm.first_name || '-'}</td>
                           <td style={{ padding: '0.75rem' }}>{gm.last_name || '-'}</td>
                           <td style={{ padding: '0.75rem' }}>{gm.email || '-'}</td>
-                          <td style={{ padding: '0.75rem' }}>{new Date(gm.submitted_at).toLocaleString()}</td>
+                          <td style={{ padding: '0.75rem' }}>{formatAdminTimestamp(gm.submitted_at)}</td>
                         </tr>
                       ))
                     ) : (
@@ -1006,7 +1058,7 @@ export default function AdminPanel() {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
                 <h2 style={{ margin: 0 }}>Rating Question Analytics</h2>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.95rem' }}>
+                <label className="admin-field-inline" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.95rem' }}>
                   Filter by Convention:
                   <select
                     value={graphConventionFilter}
@@ -1050,20 +1102,20 @@ export default function AdminPanel() {
                Array.isArray(ratingData.adventureRating) && 
                Array.isArray(ratingData.recommendationRating) &&
                ratingData.gmRating.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                <div className="admin-stacked-section" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                   <RatingChart
                     data={ratingData.gmRating}
-                    title="Rate your GM on a scale from 1 to 5"
+                    title="Rate the GM from 1 to 5."
                     color="#667eea"
                   />
                   <RatingChart
                     data={ratingData.adventureRating}
-                    title="Rate the adventure on a scale from 1 to 5"
+                    title="Rate the adventure from 1 to 5."
                     color="#764ba2"
                   />
                   <RatingChart
                     data={ratingData.recommendationRating}
-                    title="On a scale of 1 to 10, Would you recommend Everyday Heroes to a friend?"
+                    title="How likely are you to recommend this game to a friend?"
                     color="#27ae60"
                   />
                 </div>
@@ -1087,7 +1139,7 @@ export default function AdminPanel() {
 
               {/* Select GM */}
               {gmAdventures && gmAdventures.gmQuestion && (
-                <div style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px' }}>
+                <div className="admin-card" style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px' }}>
                   <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.95rem' }}>
                     Select GM ({gmAdventures.gmQuestion.question_text}):
                   </label>
@@ -1121,7 +1173,7 @@ export default function AdminPanel() {
 
               {/* Show selected GM's associations */}
               {selectedGMOptionId && gmAdventures && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                <div className="admin-stacked-section" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                   {(() => {
                     const selectedGM = gmAdventures.gms.find((gm: any) => gm.id === selectedGMOptionId);
                     if (!selectedGM) return null;
@@ -1129,7 +1181,7 @@ export default function AdminPanel() {
                     return (
                       <>
                         {/* Step 1: Associate with Conventions */}
-                        <div style={{ padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+                        <div className="admin-card" style={{ padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
                           <div style={{ marginBottom: '1rem' }}>
                             <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>{selectedGM.option_text}</h3>
                             <p style={{ margin: '0.5rem 0 0 0', color: '#666', fontSize: '0.9rem' }}>Step 1: Associate with Conventions</p>
@@ -1138,7 +1190,7 @@ export default function AdminPanel() {
                           <div style={{ marginBottom: '1rem' }}>
                             <h4 style={{ marginBottom: '0.75rem', fontSize: '1rem', fontWeight: 600 }}>Associated Conventions:</h4>
                             {selectedGM.conventions && selectedGM.conventions.length > 0 ? (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                              <div className="admin-chip-list" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                                 {selectedGM.conventions.slice().sort((a: any, b: any) => (a.option_text || '').localeCompare(b.option_text || '', undefined, { sensitivity: 'base' })).map((convention: any) => (
                                   <div
                                     key={convention.id}
@@ -1224,7 +1276,7 @@ export default function AdminPanel() {
                             const allAdventuresForConvention = conventionAdventures.map((a: any) => a.id);
                             
                             return (
-                              <div key={convention.id} style={{ padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0', marginTop: '1rem' }}>
+                              <div key={convention.id} className="admin-card" style={{ padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0', marginTop: '1rem' }}>
                                 <div style={{ marginBottom: '1rem' }}>
                                   <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                                     Adventures for {convention.option_text}:
@@ -1233,7 +1285,7 @@ export default function AdminPanel() {
 
                                 <div style={{ marginBottom: '1rem' }}>
                                   {conventionAdventures.length > 0 ? (
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                    <div className="admin-chip-list" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                                       {conventionAdventures.slice().sort((a: any, b: any) => (a.option_text || '').localeCompare(b.option_text || '', undefined, { sensitivity: 'base' })).map((adventure: any) => (
                                         <div
                                           key={adventure.id}
@@ -1309,7 +1361,7 @@ export default function AdminPanel() {
                             );
                           })
                         ) : (
-                          <div style={{ padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0', marginTop: '1rem' }}>
+                          <div className="admin-card" style={{ padding: '1.5rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0', marginTop: '1rem' }}>
                             <p style={{ color: '#666', fontStyle: 'italic' }}>
                               Please associate this GM with at least one convention first (Step 1) before adding adventures.
                             </p>
@@ -1368,7 +1420,7 @@ export default function AdminPanel() {
                         return null;
                       })()}
                     </select>
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                    <div className="admin-button-row" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
                       <button
                         onClick={() => {
                           const select = document.getElementById('convention-select') as HTMLSelectElement;
@@ -1593,7 +1645,7 @@ export default function AdminPanel() {
             <p style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#666', wordBreak: 'break-all' }}>
               {qrCodeLink}
             </p>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+            <div className="admin-modal-actions" style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
               <button
                 onClick={async () => {
                   if (!qrCodeRef.current) return;
@@ -1689,7 +1741,7 @@ function AddOptionForm({ questionId, onAdd, onAddMultiple }: { questionId: numbe
 
   if (!showForm) {
     return (
-      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+      <div className="admin-form-row admin-add-option-actions" style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
         <button
           onClick={() => {
             setShowForm(true);
@@ -1748,7 +1800,7 @@ function AddOptionForm({ questionId, onAdd, onAddMultiple }: { questionId: numbe
           }}
           autoFocus
         />
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+        <div className="admin-form-row admin-add-option-actions" style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
           <button
             onClick={() => {
               const options = multipleText.split('\n').filter(line => line.trim().length > 0);
@@ -1779,7 +1831,7 @@ function AddOptionForm({ questionId, onAdd, onAddMultiple }: { questionId: numbe
   }
 
   return (
-    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+    <div className="admin-form-row admin-add-option-inline" style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
       <input
         type="text"
         placeholder="New option text"

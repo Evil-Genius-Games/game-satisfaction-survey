@@ -6,15 +6,18 @@ export async function GET() {
   try {
     const responsesResult = await client.query(
       `SELECT r.*, 
-        json_agg(
-          json_build_object(
-            'question_text', q.question_text,
-            'question_id', q.id,
-            'display_order', q.display_order,
-            'answer_text', a.answer_text,
-            'answer_value', a.answer_value
-          ) ORDER BY q.display_order
-        ) FILTER (WHERE a.id IS NOT NULL) as answers
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'question_text', q.question_text,
+              'question_id', q.id,
+              'display_order', q.display_order,
+              'answer_text', a.answer_text,
+              'answer_value', a.answer_value
+            ) ORDER BY q.display_order
+          ) FILTER (WHERE a.id IS NOT NULL),
+          '[]'::json
+        ) as answers
       FROM responses r
       LEFT JOIN answers a ON r.id = a.response_id
       LEFT JOIN questions q ON a.question_id = q.id

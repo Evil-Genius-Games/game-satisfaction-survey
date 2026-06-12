@@ -1,157 +1,36 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
-// Initialize tables if they don't exist
 async function ensureTablesExist() {
-  const client = await pool.connect();
-  try {
-    // Check if gm_conventions table exists
-    const conventionsTableExists = await client.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'gm_conventions'
-      )
-    `);
+  const requiredColumns: Record<string, string[]> = {
+    gm_conventions: ['id', 'gm_option_id', 'convention_option_id', 'created_at'],
+    gm_adventures: ['id', 'gm_option_id', 'convention_option_id', 'adventure_option_id', 'created_at'],
+  };
 
-    if (!conventionsTableExists.rows[0].exists) {
-      // Create gm_conventions table
-      await client.query(`
-        CREATE TABLE gm_conventions (
-          id SERIAL PRIMARY KEY,
-          gm_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-          convention_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(gm_option_id, convention_option_id)
-        )
-      `);
+  const { rows } = await pool.query(
+    `SELECT table_name, column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = ANY($1::text[])`,
+    [Object.keys(requiredColumns)]
+  );
 
-      await client.query(`
-        CREATE INDEX idx_gm_conventions_gm_option_id ON gm_conventions(gm_option_id)
-      `);
-      await client.query(`
-        CREATE INDEX idx_gm_conventions_convention_option_id ON gm_conventions(convention_option_id)
-      `);
-    } else {
-      // Table exists, check what columns it has
-      const conventionColumns = await client.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'gm_conventions'
-      `);
-
-      const conventionColumnNames = conventionColumns.rows.map((row: any) => row.column_name);
-      const hasGmOptionId = conventionColumnNames.includes('gm_option_id');
-      const hasConventionOptionId = conventionColumnNames.includes('convention_option_id');
-
-      // If table has wrong schema, drop and recreate
-      if (!hasGmOptionId || !hasConventionOptionId) {
-        await client.query('DROP TABLE IF EXISTS gm_conventions CASCADE');
-        
-        // Recreate with correct schema
-        await client.query(`
-          CREATE TABLE gm_conventions (
-            id SERIAL PRIMARY KEY,
-            gm_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-            convention_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(gm_option_id, convention_option_id)
-          )
-        `);
-
-        await client.query(`
-          CREATE INDEX idx_gm_conventions_gm_option_id ON gm_conventions(gm_option_id)
-        `);
-        await client.query(`
-          CREATE INDEX idx_gm_conventions_convention_option_id ON gm_conventions(convention_option_id)
-        `);
-      }
+  const columnsByTable = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (!columnsByTable.has(row.table_name)) {
+      columnsByTable.set(row.table_name, new Set<string>());
     }
+    columnsByTable.get(row.table_name)!.add(row.column_name);
+  }
 
-    // Check if gm_adventures table exists
-    const tableExists = await client.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'gm_adventures'
-      )
-    `);
+  const missing = Object.entries(requiredColumns).flatMap(([table, columns]) => {
+    const present = columnsByTable.get(table);
+    if (!present) return [`${table} table`];
+    return columns.filter(column => !present.has(column)).map(column => `${table}.${column}`);
+  });
 
-    if (!tableExists.rows[0].exists) {
-      // Table doesn't exist, create it with new schema (includes convention_option_id)
-      await client.query(`
-        CREATE TABLE gm_adventures (
-          id SERIAL PRIMARY KEY,
-          gm_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-          convention_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-          adventure_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(gm_option_id, convention_option_id, adventure_option_id)
-        )
-      `);
-
-      // Create indexes
-      await client.query(`
-        CREATE INDEX idx_gm_adventures_gm_option_id ON gm_adventures(gm_option_id)
-      `);
-      await client.query(`
-        CREATE INDEX idx_gm_adventures_convention_option_id ON gm_adventures(convention_option_id)
-      `);
-      await client.query(`
-        CREATE INDEX idx_gm_adventures_adventure_option_id ON gm_adventures(adventure_option_id)
-      `);
-      await client.query(`
-        CREATE INDEX idx_gm_adventures_gm_convention ON gm_adventures(gm_option_id, convention_option_id)
-      `);
-    } else {
-      // Table exists, check what columns it has
-      const columns = await client.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'gm_adventures'
-      `);
-
-      const columnNames = columns.rows.map((row: any) => row.column_name);
-      const hasGmOptionId = columnNames.includes('gm_option_id');
-      const hasGmId = columnNames.includes('gm_id');
-      const hasAdventureOptionId = columnNames.includes('adventure_option_id');
-      const hasConventionOptionId = columnNames.includes('convention_option_id');
-
-      // If table has old schema (missing convention_option_id), migrate it
-      if (hasGmId || !hasGmOptionId || !hasAdventureOptionId || !hasConventionOptionId) {
-        // Drop the old table (data will be lost, but that's okay for migration)
-        await client.query('DROP TABLE IF EXISTS gm_adventures CASCADE');
-        
-        // Recreate with new schema (includes convention_option_id)
-        await client.query(`
-          CREATE TABLE gm_adventures (
-            id SERIAL PRIMARY KEY,
-            gm_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-            convention_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-            adventure_option_id INTEGER NOT NULL REFERENCES question_options(id) ON DELETE CASCADE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(gm_option_id, convention_option_id, adventure_option_id)
-          )
-        `);
-
-        // Create indexes
-        await client.query(`
-          CREATE INDEX idx_gm_adventures_gm_option_id ON gm_adventures(gm_option_id)
-        `);
-        await client.query(`
-          CREATE INDEX idx_gm_adventures_convention_option_id ON gm_adventures(convention_option_id)
-        `);
-        await client.query(`
-          CREATE INDEX idx_gm_adventures_adventure_option_id ON gm_adventures(adventure_option_id)
-        `);
-        await client.query(`
-          CREATE INDEX idx_gm_adventures_gm_convention ON gm_adventures(gm_option_id, convention_option_id)
-        `);
-      }
-    }
-  } catch (error: any) {
-    console.error('Error ensuring tables exist:', error);
-    throw error;
-  } finally {
-    client.release();
+  if (missing.length > 0) {
+    throw new Error(`Database schema is incomplete. Run migrations/20260606_harden_schema.sql before using GM adventure administration. Missing: ${missing.join(', ')}`);
   }
 }
 

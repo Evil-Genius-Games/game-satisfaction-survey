@@ -1,4 +1,5 @@
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
+import { validateAnswersForSurvey, type IncomingAnswer, type NormalizedAnswer } from './surveyValidation';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -60,6 +61,145 @@ export interface Answer {
   created_at: Date;
 }
 
+interface RespondentInfo {
+  email?: string;
+  name?: string;
+  participantId?: string;
+  participantKey?: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+interface SurveyCombination {
+  convention: string;
+  gm: string;
+  adventure: string;
+}
+
+interface CoreQuestionIds {
+  conventionQuestionId: number;
+  gmQuestionId: number;
+  adventureQuestionId: number;
+}
+
+function normalizeMetadataValue(value: unknown, maxLength = 255) {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  if (normalized.length === 0) return null;
+  return normalized.slice(0, maxLength);
+}
+
+function getAnswerDisplayValue(answer: NormalizedAnswer) {
+  return (answer.answer_value ?? answer.answer_text ?? '').trim();
+}
+
+function findAnswerDisplayValue(answers: NormalizedAnswer[], questionId: number) {
+  const answer = answers.find((candidate) => candidate.question_id === questionId);
+  return answer ? getAnswerDisplayValue(answer) : '';
+}
+
+function createDuplicateCombinationError(existingResponseId: number) {
+  const error = new Error('Thanks for playing! You’ve already completed the survey for this convention, GM, and adventure. We’d love to hear from you again—please sign up for another game and share feedback after that session.') as Error & {
+    status?: number;
+    details?: string[];
+    existingResponseId?: number;
+  };
+  error.status = 409;
+  error.details = ['Duplicate convention, GM, and adventure combination for this participant'];
+  error.existingResponseId = existingResponseId;
+  return error;
+}
+
+async function getCoreQuestionIds(client: PoolClient, surveyId: number): Promise<CoreQuestionIds | null> {
+  const result = await client.query(
+    `SELECT id, display_order
+       FROM questions
+      WHERE survey_id = $1
+        AND display_order IN (1, 2, 3)`,
+    [surveyId]
+  );
+
+  const idsByOrder = new Map<number, number>();
+  for (const row of result.rows) {
+    idsByOrder.set(Number(row.display_order), Number(row.id));
+  }
+
+  const conventionQuestionId = idsByOrder.get(1);
+  const gmQuestionId = idsByOrder.get(2);
+  const adventureQuestionId = idsByOrder.get(3);
+
+  if (!conventionQuestionId || !gmQuestionId || !adventureQuestionId) {
+    return null;
+  }
+
+  return { conventionQuestionId, gmQuestionId, adventureQuestionId };
+}
+
+async function getSurveyCombination(
+  client: PoolClient,
+  surveyId: number,
+  answers: NormalizedAnswer[]
+): Promise<(SurveyCombination & { questionIds: CoreQuestionIds }) | null> {
+  const questionIds = await getCoreQuestionIds(client, surveyId);
+  if (!questionIds) return null;
+
+  const convention = findAnswerDisplayValue(answers, questionIds.conventionQuestionId);
+  const gm = findAnswerDisplayValue(answers, questionIds.gmQuestionId);
+  const adventure = findAnswerDisplayValue(answers, questionIds.adventureQuestionId);
+
+  if (!convention || !gm || !adventure) {
+    return null;
+  }
+
+  return { convention, gm, adventure, questionIds };
+}
+
+async function findDuplicateCombination(
+  client: PoolClient,
+  surveyId: number,
+  participantId: string | null,
+  participantKey: string | null,
+  combination: SurveyCombination & { questionIds: CoreQuestionIds }
+) {
+  if (!participantId && !participantKey) return null;
+
+  const result = await client.query(
+    `SELECT r.id
+       FROM responses r
+       JOIN answers convention_answer
+         ON convention_answer.response_id = r.id
+        AND convention_answer.question_id = $4
+       JOIN answers gm_answer
+         ON gm_answer.response_id = r.id
+        AND gm_answer.question_id = $5
+       JOIN answers adventure_answer
+         ON adventure_answer.response_id = r.id
+        AND adventure_answer.question_id = $6
+      WHERE r.survey_id = $1
+        AND (
+          ($2::text IS NOT NULL AND r.metadata->>'participant_id' = $2)
+          OR ($3::text IS NOT NULL AND r.metadata->>'participant_key' = $3)
+        )
+        AND TRIM(COALESCE(NULLIF(convention_answer.answer_value, ''), convention_answer.answer_text, '')) = $7
+        AND TRIM(COALESCE(NULLIF(gm_answer.answer_value, ''), gm_answer.answer_text, '')) = $8
+        AND TRIM(COALESCE(NULLIF(adventure_answer.answer_value, ''), adventure_answer.answer_text, '')) = $9
+      LIMIT 1`,
+    [
+      surveyId,
+      participantId,
+      participantKey,
+      combination.questionIds.conventionQuestionId,
+      combination.questionIds.gmQuestionId,
+      combination.questionIds.adventureQuestionId,
+      combination.convention,
+      combination.gm,
+      combination.adventure,
+    ]
+  );
+
+  return result.rows[0]?.id ? Number(result.rows[0].id) : null;
+}
+
 export async function getSurvey(id: number): Promise<Survey | null> {
   const client = await pool.connect();
   try {
@@ -102,22 +242,73 @@ export async function getSurveyWithQuestions(id: number) {
   }
 }
 
-export async function createResponse(surveyId: number, answers: Array<{question_id: number, answer_text?: string, answer_value?: string}>, respondentInfo?: {email?: string, name?: string}) {
+export async function createResponse(
+  surveyId: number,
+  answers: IncomingAnswer[],
+  respondentInfo?: RespondentInfo
+) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    const validation = await validateAnswersForSurvey(client, surveyId, answers);
+    if (!validation.ok) {
+      const error = new Error(validation.error) as Error & { status?: number; details?: string[] };
+      error.status = validation.status;
+      error.details = validation.details;
+      throw error;
+    }
+
+    const participantId = normalizeMetadataValue(respondentInfo?.participantId, 128);
+    const participantKey = normalizeMetadataValue(respondentInfo?.participantKey, 128);
+    const ipAddress = normalizeMetadataValue(respondentInfo?.ipAddress, 128);
+    const userAgent = normalizeMetadataValue(respondentInfo?.userAgent, 512);
+    const surveyCombination = await getSurveyCombination(client, surveyId, validation.answers);
+
+    if (surveyCombination) {
+      const existingResponseId = await findDuplicateCombination(
+        client,
+        surveyId,
+        participantId,
+        participantKey,
+        surveyCombination
+      );
+
+      if (existingResponseId) {
+        throw createDuplicateCombinationError(existingResponseId);
+      }
+    }
+
+    const metadata = {
+      participant_id: participantId,
+      participant_key: participantKey,
+      survey_combo: surveyCombination ? {
+        convention: surveyCombination.convention,
+        gm: surveyCombination.gm,
+        adventure: surveyCombination.adventure,
+      } : null,
+    };
     
     const responseResult = await client.query(
-      'INSERT INTO responses (survey_id, respondent_email, respondent_name) VALUES ($1, $2, $3) RETURNING id',
-      [surveyId, respondentInfo?.email || null, respondentInfo?.name || null]
+      `INSERT INTO responses (survey_id, respondent_email, respondent_name, ip_address, user_agent, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       RETURNING id`,
+      [
+        surveyId,
+        respondentInfo?.email || null,
+        respondentInfo?.name || null,
+        ipAddress,
+        userAgent,
+        JSON.stringify(metadata),
+      ]
     );
     
     const responseId = responseResult.rows[0].id;
     
-    for (const answer of answers) {
+    for (const answer of validation.answers) {
       await client.query(
         'INSERT INTO answers (response_id, question_id, answer_text, answer_value) VALUES ($1, $2, $3, $4)',
-        [responseId, answer.question_id, answer.answer_text || null, answer.answer_value || null]
+        [responseId, answer.question_id, answer.answer_text, answer.answer_value]
       );
     }
     
@@ -132,4 +323,3 @@ export async function createResponse(surveyId: number, answers: Array<{question_
 }
 
 export default pool;
-
