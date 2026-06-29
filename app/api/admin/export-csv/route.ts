@@ -61,7 +61,7 @@ export async function GET(request: Request) {
 
     // Get all unique question texts for headers
     const allQuestions = await pool.query(
-      'SELECT DISTINCT question_text FROM questions WHERE survey_id = 1 ORDER BY display_order'
+      'SELECT question_text FROM questions WHERE survey_id = 1 GROUP BY question_text, display_order ORDER BY display_order'
     );
     const questionHeaders = allQuestions.rows.map((q: any) => q.question_text);
 
